@@ -1,6 +1,38 @@
-﻿namespace Havaianas_Api.Controllers
+﻿using Havaianas_Api.Datos;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Havaianas_Api.Controllers
 {
-    public class VentasController
+    [ApiController]
+    [Route("[controller]")]
+    public class VentasController : ControllerBase
     {
+        sql_db sql = new sql_db();
+
+        [HttpGet]
+        // GET: /Ventas?suc=1&fechaInicio=2024-01-01&fechaFin=2024-01-31&agDia=true&agProd=false&agSuc=false
+        // Parámetros:
+        // - suc: ID de la sucursal (opcional, por defecto 0 para todas las sucursales)
+        // - fechaInicio: Fecha de inicio para filtrar las ventas (opcional)
+        // - fechaFin: Fecha de fin para filtrar las ventas (opcional)
+        // - agDia: Agregar agrupación por día (opcional, por defecto false)
+        // - agProd: Agregar agrupación por producto (opcional, por defecto false)
+        // - agSuc: Agregar agrupación por sucursal (opcional, por defecto false)
+        public ActionResult<IEnumerable<Modelos.ventas>> Get(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null, bool agDia = false, bool agProd = false, bool agSuc =false)
+        {
+            return Ok(sql.ventas(suc, fechaInicio, fechaFin, agDia, agProd, agSuc));
+        }
+
+        [HttpGet("resumen-mini")]
+        // GET: /Ventas/resumen-mini?suc=1&fechaInicio=2024-01-01&fechaFin=2024-01-31
+        // Parámetros:
+        // - suc: ID de la sucursal (opcional, por defecto 0 para todas las sucursales)
+        // - fechaInicio: Fecha de inicio para filtrar las ventas (opcional)
+        // - fechaFin: Fecha de fin para filtrar las ventas (opcional)
+        public ActionResult<IEnumerable<Modelos.ventas>> GetResumenMini(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null)
+        {
+            return Ok(sql.ventas_resumen_mini(suc, fechaInicio, fechaFin));
+        }
     }
 }
