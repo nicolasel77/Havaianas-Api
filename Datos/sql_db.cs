@@ -63,6 +63,35 @@ namespace Havaianas_Api.Datos
             }
         }
 
+        internal Ingresos[] obtener_ingresos(DateTime fecha)
+        {
+            sql.Open();
+            using (SqlCommand cmd = new SqlCommand("SELECT [ID], ISNULL([Fecha], GETDATE()), ISNULL([ID_Producto], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Total], 0)" +
+                ", ISNULL([Cantidad], 0), ISNULL([Precio], 0) FROM vw_ingresos WHERE Fecha = @fecha", sql))
+            {
+                cmd.Parameters.AddWithValue("@fecha", fecha);
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    List<Ingresos> ingresosList = new List<Ingresos>();
+                    while (reader.Read())
+                    {
+                        Ingresos ingreso = new Ingresos
+                        {
+                            id = reader.GetInt32(0),
+                            fecha = reader.GetDateTime(1),
+                            id_producto = reader.GetInt32(2),
+                            nombre_producto = reader.GetString(3),
+                            total = reader.GetDouble(4),
+                            cantidad = reader.GetDecimal(5),
+                            precio = reader.GetDecimal(6)
+                        };
+                        ingresosList.Add(ingreso);
+                    }
+                    return ingresosList.ToArray();
+                }
+            }
+        }
+
         internal productos obtener_producto(string id)
         {
             sql.Open();
