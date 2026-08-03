@@ -27,7 +27,8 @@ namespace Havaianas_Api.Modelos
         public int estado { get; set; }
         public string CAE { get; set; }
         public DateTime hora { get; set; }
-        public decimal cantidad { get; internal set; }
-        public decimal precio { get; internal set; }
+        public decimal cantidad { get; set; }
+        public decimal precio { get;  set; }
+        public int id_venta_sucursal { get; set; }
     }
 }

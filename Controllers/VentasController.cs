@@ -19,7 +19,7 @@ namespace Havaianas_Api.Controllers
         // - agDia: Agregar agrupación por día (opcional, por defecto false)
         // - agProd: Agregar agrupación por producto (opcional, por defecto false)
         // - agSuc: Agregar agrupación por sucursal (opcional, por defecto false)
-        public ActionResult<IEnumerable<Modelos.ventas>> Get(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null, bool agDia = false, bool agProd = false, bool agSuc =false)
+        public ActionResult<IEnumerable<Modelos.ventas>> Get(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null, bool agDia = false, bool agProd = false, bool agSuc = false)
         {
             return Ok(sql.ventas(suc, fechaInicio, fechaFin, agDia, agProd, agSuc));
         }
@@ -33,6 +33,26 @@ namespace Havaianas_Api.Controllers
         public ActionResult<IEnumerable<Modelos.ventas>> GetResumenMini(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null)
         {
             return Ok(sql.ventas_resumen_mini(suc, fechaInicio, fechaFin));
+        }
+
+        [HttpPost]
+        // Recive las ventas de las sucursales y las ingresa a la tabla ventas
+        public ActionResult Post([FromBody] List<Modelos.ventas> ventas)
+        {
+            if (ventas == null || ventas.Count == 0)
+            {
+                return BadRequest("No se recibieron ventas para procesar.");
+            }
+            try
+            {
+                sql.insertar_ventas(ventas);
+                return Ok("Ventas insertadas correctamente.");
+            }
+            catch (Exception ex)
+            {
+                // Log the exception (ex) here if needed
+                return StatusCode(500, $"Error al insertar ventas: {ex.Message}");
+            }
         }
     }
 }

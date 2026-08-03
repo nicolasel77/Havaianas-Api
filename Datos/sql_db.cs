@@ -5,14 +5,16 @@ namespace Havaianas_Api.Datos
 {
     public class sql_db
     {
-        //SqlConnection sql = new SqlConnection("Data Source=NICO;Initial Catalog=dbHavaianas;Trusted_Connection=True;TrustServerCertificate=True;");
-        SqlConnection sql = new SqlConnection("Data Source=192.168.1.11;Initial Catalog=dbHavaianas_servidor;User Id=Nikorasu;Password=Oficina02;TrustServerCertificate=True;");
+        SqlConnection sql = new SqlConnection("Data Source=NICO;Initial Catalog=dbHavaianas_servidor;Trusted_Connection=True;TrustServerCertificate=True;");
+        //SqlConnection sql = new SqlConnection("Data Source=192.168.1.11;Initial Catalog=dbHavaianas_servidor;User Id=Nikorasu;Password=Oficina02;TrustServerCertificate=True;");
         // funcion para obtener todos los productos
         public Modelos.productos[] obtener_productos()
         {
             sql.Open();
-            using (SqlCommand cmd = new SqlCommand("SELECT [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Categoria], '')" +
-                ", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos ORDER BY Descripcion_Codigo", sql))
+            string comando = "SELECT [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Categoria], '')" +
+                ", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos";
+
+            using (SqlCommand cmd = new SqlCommand(comando, sql))
             {
                 using (SqlDataReader reader = cmd.ExecuteReader())
                 {
@@ -39,6 +41,7 @@ namespace Havaianas_Api.Datos
         }
 
 
+
         // sucursales
         public Modelos.sucursales[] obtener_sucursales()
         {
@@ -63,13 +66,78 @@ namespace Havaianas_Api.Datos
             }
         }
 
-        internal Ingresos[] obtener_ingresos(DateTime fecha)
+        internal bool agregar_ingreso(Ingresos ingreso)
+        {
+            sql.Open();
+            bool resultado = false;
+            using (SqlCommand cmd = new SqlCommand("INSERT INTO compras (Fecha, ID_Producto, Cantidad, Precio) " +
+                "VALUES (@fecha, @id_producto, @cantidad, @precio)", sql))
+            {
+                cmd.Parameters.AddWithValue("@fecha", ingreso.fecha);
+                cmd.Parameters.AddWithValue("@id_producto", ingreso.id_producto);
+                cmd.Parameters.AddWithValue("@cantidad", ingreso.cantidad);
+                cmd.Parameters.AddWithValue("@precio", ingreso.precio);
+                cmd.ExecuteNonQuery();
+                resultado = true;
+            }
+            return resultado;
+        }
+
+        internal bool editar_ingreso(Ingresos ingreso)
+        {
+            sql.Open();
+            bool resultado = false;
+            using (SqlCommand cmd = new SqlCommand("UPDATE compras SET Fecha=@fecha, ID_Producto=@producto, Cantidad=@cantidad, Precio=@precio WHERE ID=@id"
+                    , sql))
+            {
+                cmd.Parameters.AddWithValue("@id", ingreso.id);
+                cmd.Parameters.AddWithValue("@fecha", ingreso.fecha);
+                cmd.Parameters.AddWithValue("@producto", ingreso.id_producto);
+                cmd.Parameters.AddWithValue("@cantidad", ingreso.cantidad);
+                cmd.Parameters.AddWithValue("@precio", ingreso.precio);
+                cmd.ExecuteNonQuery();
+                resultado =true;
+
+            }
+            return resultado;
+        }
+
+        internal Ingresos obtener_ingreso(int id)
         {
             sql.Open();
             using (SqlCommand cmd = new SqlCommand("SELECT [ID], ISNULL([Fecha], GETDATE()), ISNULL([ID_Producto], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Total], 0)" +
-                ", ISNULL([Cantidad], 0), ISNULL([Precio], 0) FROM vw_ingresos WHERE Fecha = @fecha", sql))
+                ", ISNULL([Cantidad], 0), ISNULL([Precio], 0) FROM vw_ingresos WHERE [ID] = @id", sql))
             {
-                cmd.Parameters.AddWithValue("@fecha", fecha);
+                cmd.Parameters.AddWithValue("@id", id);
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        Ingresos ingreso = new Ingresos
+                        {
+                            id = reader.GetInt32(0),
+                            fecha = reader.GetDateTime(1),
+                            id_producto = reader.GetInt32(2),
+                            nombre_producto = reader.GetString(3),
+                            total = reader.GetDouble(4),
+                            cantidad = (double)reader.GetSqlDouble(5),
+                            precio = (double)reader.GetSqlDouble(6)
+                        };
+                        return ingreso;
+                    }
+                }
+            }
+            return null;
+        }
+
+        internal Ingresos[] obtener_ingresos(DateTime fecha, DateTime fechaFin)
+        {
+            sql.Open();
+            using (SqlCommand cmd = new SqlCommand("SELECT [ID], ISNULL([Fecha], GETDATE()), ISNULL([ID_Producto], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Total], 0)" +
+                ", ISNULL([Cantidad], 0), ISNULL([Precio], 0) FROM vw_ingresos WHERE CAST([Fecha] AS DATE) BETWEEN @fechaInicio AND @fechaFin", sql))
+            {
+                cmd.Parameters.AddWithValue("@fechaInicio", fecha);
+                cmd.Parameters.AddWithValue("@fechaFin", fechaFin);
                 using (SqlDataReader reader = cmd.ExecuteReader())
                 {
                     List<Ingresos> ingresosList = new List<Ingresos>();
@@ -82,8 +150,8 @@ namespace Havaianas_Api.Datos
                             id_producto = reader.GetInt32(2),
                             nombre_producto = reader.GetString(3),
                             total = reader.GetDouble(4),
-                            cantidad = reader.GetDecimal(5),
-                            precio = reader.GetDecimal(6)
+                            cantidad = (double)reader.GetSqlDouble(5),
+                            precio = (double)reader.GetSqlDouble(6)
                         };
                         ingresosList.Add(ingreso);
                     }
@@ -96,7 +164,8 @@ namespace Havaianas_Api.Datos
         {
             sql.Open();
             using (SqlCommand cmd = new SqlCommand("SELECT TOP 1 [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Categoria], '')" +
-                ", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos WHERE Descripcion_Codigo LIKE '%' + @id + '%' OR CONVERT(varchar, EAN_2025)=@id", sql))
+                ", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos " +
+                "WHERE Descripcion_Codigo LIKE '%' + @id + '%' OR CONVERT(varchar, EAN_2025)=@id OR CONVERT(varchar, Codigo_Equis)=@id", sql))
             {
                 cmd.Parameters.AddWithValue("@id", id);
                 using (SqlDataReader reader = cmd.ExecuteReader())
@@ -249,7 +318,7 @@ namespace Havaianas_Api.Datos
                             };
 
                             venta.total = venta.subTotal - venta.descuento;
-                            ventasList.Add(venta); 
+                            ventasList.Add(venta);
                         }
                         else
                         {
@@ -282,6 +351,111 @@ namespace Havaianas_Api.Datos
                     return ventasList.ToArray();
                 }
             }
+        }
+
+        internal traslados[] obtener_traslados(DateTime fechaInicio, DateTime fechaFin)
+        {
+            sql.Open();
+            using (SqlCommand cmd = new SqlCommand("SELECT [ID], ISNULL([Fecha], GETDATE()), ISNULL([ID_Producto], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Cantidad], 0)" +
+                ", ISNULL([ID_Sucursal_Origen], 0), ISNULL([Nombre_Origen], ''), ISNULL([ID_Sucursal_Destino], 0), ISNULL([Nombre_Destino], ''), ISNULL([Observaciones], ''), ISNULL([Estado], 0) FROM vw_traslados WHERE CAST([Fecha] AS DATE) BETWEEN @fechaInicio AND @fechaFin", sql))
+            {
+                cmd.Parameters.AddWithValue("@fechaInicio", fechaInicio);
+                cmd.Parameters.AddWithValue("@fechaFin", fechaFin);
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    List<traslados> list = new List<traslados>();
+                    while (reader.Read())
+                    {
+                        traslados t = new traslados
+                        {
+                            id = reader.GetInt32(0),
+                            fecha = reader.GetDateTime(1),
+                            id_producto = reader.GetInt32(2),
+                            nombre_producto = reader.GetString(3),
+                            cantidad = (double)reader.GetSqlDouble(4),
+                            id_sucursal_origen = reader.GetInt32(5),
+                            nombre_sucursal_origen = reader.GetString(6),
+                            id_sucursal_destino = reader.GetInt32(7),
+                            nombre_sucursal_destino = reader.GetString(8),
+                            observaciones = reader.GetString(9),
+                            estado = reader.GetInt32(10)
+                        };
+                        list.Add(t);
+                    }
+                    return list.ToArray();
+                }
+            }
+        }
+
+        internal traslados obtener_traslado(int id)
+        {
+            sql.Open();
+            using (SqlCommand cmd = new SqlCommand("SELECT [ID], ISNULL([Fecha], GETDATE()), ISNULL([ID_Producto], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Cantidad], 0), ISNULL([ID_Sucursal_Origen], 0)" +
+                ", ISNULL([Nombre_Origen], ''), ISNULL([ID_Sucursal_Destino], 0), ISNULL([Nombre_Destino], ''), ISNULL([Observaciones], ''), ISNULL([Estado], 0) FROM vw_traslados WHERE [ID] = @id", sql))
+            {
+                cmd.Parameters.AddWithValue("@id", id);
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        traslados t = new traslados
+                        {
+                            id = reader.GetInt32(0),
+                            fecha = reader.GetDateTime(1),
+                            id_producto = reader.GetInt32(2),
+                            nombre_producto = reader.GetString(3),
+                            cantidad = (double)reader.GetSqlDouble(4),
+                            id_sucursal_origen = reader.GetInt32(5),
+                            nombre_sucursal_origen = reader.GetString(6),
+                            id_sucursal_destino = reader.GetInt32(7),
+                            nombre_sucursal_destino = reader.GetString(8),
+                            observaciones = reader.GetString(9),
+                            estado = reader.GetInt32(10)
+                        };
+                        return t;
+                    }
+                }
+            }
+            return null;
+        }
+
+        internal bool agregar_traslado(traslados traslado)
+        {
+            sql.Open();
+            bool resultado = false;
+            using (SqlCommand cmd = new SqlCommand("INSERT INTO traslados (Fecha, ID_Producto, Cantidad, ID_Sucursal_Origen, ID_Sucursal_Destino, Observaciones, Estado) VALUES (@fecha, @id_producto, @cantidad, @origen, @destino, @obs, @estado)", sql))
+            {
+                cmd.Parameters.AddWithValue("@fecha", traslado.fecha);
+                cmd.Parameters.AddWithValue("@id_producto", traslado.id_producto);
+                cmd.Parameters.AddWithValue("@cantidad", traslado.cantidad);
+                cmd.Parameters.AddWithValue("@origen", traslado.id_sucursal_origen);
+                cmd.Parameters.AddWithValue("@destino", traslado.id_sucursal_destino);
+                cmd.Parameters.AddWithValue("@obs", traslado.observaciones);
+                cmd.Parameters.AddWithValue("@estado", traslado.estado);
+                cmd.ExecuteNonQuery();
+                resultado = true;
+            }
+            return resultado;
+        }
+
+        internal bool editar_traslado(traslados traslado)
+        {
+            sql.Open();
+            bool resultado = false;
+            using (SqlCommand cmd = new SqlCommand("UPDATE traslados SET Fecha=@fecha, ID_Producto=@producto, Cantidad=@cantidad, ID_Sucursal_Origen=@origen, ID_Sucursal_Destino=@destino, Observaciones=@obs, Estado=@estado WHERE ID=@id", sql))
+            {
+                cmd.Parameters.AddWithValue("@id", traslado.id);
+                cmd.Parameters.AddWithValue("@fecha", traslado.fecha);
+                cmd.Parameters.AddWithValue("@producto", traslado.id_producto);
+                cmd.Parameters.AddWithValue("@cantidad", traslado.cantidad);
+                cmd.Parameters.AddWithValue("@origen", traslado.id_sucursal_origen);
+                cmd.Parameters.AddWithValue("@destino", traslado.id_sucursal_destino);
+                cmd.Parameters.AddWithValue("@obs", traslado.observaciones);
+                cmd.Parameters.AddWithValue("@estado", traslado.estado);
+                cmd.ExecuteNonQuery();
+                resultado = true;
+            }
+            return resultado;
         }
 
         internal Modelos.ventas[] ventas_resumen_mini(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null)
@@ -321,6 +495,69 @@ namespace Havaianas_Api.Datos
                         ventasList.Add(venta);
                     }
                     return ventasList.ToArray();
+                }
+            }
+        }
+
+        internal void insertar_ventas(List<ventas> ventas)
+        {
+            sql.Open();
+            foreach (var venta in ventas)
+            {
+                // Primero chequear que no exista el registro con id_venta_sucursal y id_sucursal
+                using (SqlCommand checkCmd = new SqlCommand("SELECT [ID] FROM ventas WHERE ISNULL(id_venta_sucursal, '') = ISNULL(@id_venta_sucursal, '') AND ISNULL(id_sucursal, 0) = ISNULL(@id_sucursal, 0)", sql))
+                {
+                    checkCmd.Parameters.AddWithValue("@id_venta_sucursal", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
+                    checkCmd.Parameters.AddWithValue("@id_sucursal", (object)venta.id_sucursal ?? System.DBNull.Value);
+                    var existing = checkCmd.ExecuteScalar();
+                    if (existing != null && existing != DBNull.Value)
+                    {
+                        // actualizar
+                        using (SqlCommand cmd = new SqlCommand("UPDATE ventas SET [numero]=@numero, [fecha]=@fecha, [tipo_factura]=@tipo_factura, [cliente]=@cliente, [vendedor]=@vendedor, [forma_pago]=@forma_pago, [subTotal]=@subTotal, [iva]=@iva, [descuento]=@descuento, [total]=@total, [observaciones]=@observaciones, [estado]=@estado, [CAE]=@CAE, [hora]=@hora, [id_venta_sucursal]=@id_venta_sucursal WHERE [ID]=@id", sql))
+                        {
+                            cmd.Parameters.AddWithValue("@id", Convert.ToInt32(existing));
+                            cmd.Parameters.AddWithValue("@numero", venta.numero);
+                            cmd.Parameters.AddWithValue("@fecha", venta.fecha);
+                            cmd.Parameters.AddWithValue("@tipo_factura", venta.tipo_factura);
+                            cmd.Parameters.AddWithValue("@cliente", venta.cliente);
+                            cmd.Parameters.AddWithValue("@vendedor", venta.vendedor);
+                            cmd.Parameters.AddWithValue("@forma_pago", venta.forma_pago);
+                            cmd.Parameters.AddWithValue("@subTotal", venta.subTotal);
+                            cmd.Parameters.AddWithValue("@iva", venta.iva);
+                            cmd.Parameters.AddWithValue("@descuento", venta.descuento);
+                            cmd.Parameters.AddWithValue("@total", venta.total);
+                            cmd.Parameters.AddWithValue("@observaciones", venta.observaciones);
+                            cmd.Parameters.AddWithValue("@estado", venta.estado);
+                            cmd.Parameters.AddWithValue("@CAE", venta.CAE);
+                            cmd.Parameters.AddWithValue("@hora", venta.hora);
+                            cmd.Parameters.AddWithValue("@id_venta_sucursal", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
+                    else
+                    {
+                        // insertar
+                        using (SqlCommand cmd = new SqlCommand("INSERT INTO ventas ([numero], [fecha], [tipo_factura], [cliente], [vendedor], [forma_pago], [subTotal], [iva], [descuento], [total], [observaciones], [estado], [id_sucursal], [CAE], [hora], [id_venta_sucursal]) VALUES (@numero, @fecha, @tipo_factura, @cliente, @vendedor, @forma_pago, @subTotal, @iva, @descuento, @total, @observaciones, @estado, @id_sucursal, @CAE, @hora, @id_venta_sucursal)", sql))
+                        {
+                            cmd.Parameters.AddWithValue("@numero", venta.numero);
+                            cmd.Parameters.AddWithValue("@fecha", venta.fecha);
+                            cmd.Parameters.AddWithValue("@tipo_factura", venta.tipo_factura);
+                            cmd.Parameters.AddWithValue("@cliente", venta.cliente);
+                            cmd.Parameters.AddWithValue("@vendedor", venta.vendedor);
+                            cmd.Parameters.AddWithValue("@forma_pago", venta.forma_pago);
+                            cmd.Parameters.AddWithValue("@subTotal", venta.subTotal);
+                            cmd.Parameters.AddWithValue("@iva", venta.iva);
+                            cmd.Parameters.AddWithValue("@descuento", venta.descuento);
+                            cmd.Parameters.AddWithValue("@total", venta.total);
+                            cmd.Parameters.AddWithValue("@observaciones", venta.observaciones);
+                            cmd.Parameters.AddWithValue("@estado", venta.estado);
+                            cmd.Parameters.AddWithValue("@id_sucursal", (object)venta.id_sucursal ?? System.DBNull.Value);
+                            cmd.Parameters.AddWithValue("@CAE", venta.CAE);
+                            cmd.Parameters.AddWithValue("@hora", venta.hora);
+                            cmd.Parameters.AddWithValue("@id_venta_sucursal", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
+                            cmd.ExecuteNonQuery();
+                        }
+                    }
                 }
             }
         }
