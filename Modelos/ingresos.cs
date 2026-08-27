@@ -1,6 +1,6 @@
 ﻿namespace Havaianas_Api.Modelos
 {
-    public class Ingresos
+    public class IngresoMercaderia
     {
         public int id { get; set; }                
         public DateTime fecha { get; set; }

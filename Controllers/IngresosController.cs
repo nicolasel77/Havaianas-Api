@@ -11,15 +11,15 @@ namespace Havaianas_Api.Controllers
         private readonly sql_db sql = new sql_db();
 
         [HttpGet]
-        public ActionResult<IEnumerable<Ingresos>> Get(DateTime fechaInicio, DateTime fechaFin)
+        public ActionResult<IEnumerable<IngresoMercaderia>> Get(DateTime fechaInicio, DateTime fechaFin)
         {
-            Ingresos[] ingresos = sql.obtener_ingresos(fechaInicio, fechaFin);
+            IngresoMercaderia[] ingresos = sql.obtener_ingresos(fechaInicio, fechaFin);
             return Ok(ingresos);
         }
         [HttpGet("{id}")]
-        public ActionResult<Ingresos> Get(int id)
+        public ActionResult<IngresoMercaderia> Get(int id)
         {
-            Ingresos ingreso = sql.obtener_ingreso(id);
+            IngresoMercaderia ingreso = sql.obtener_ingreso(id);
             if (ingreso == null)
             {
                 return NotFound();
@@ -29,7 +29,7 @@ namespace Havaianas_Api.Controllers
 
         [HttpPut]
         // Editar un ingreso
-        public ActionResult Editar(Ingresos ingreso)
+        public ActionResult Editar(IngresoMercaderia ingreso)
         {
             bool resultado = sql.editar_ingreso(ingreso);
             if (resultado)
@@ -43,7 +43,7 @@ namespace Havaianas_Api.Controllers
         }
 
         [HttpPost]
-        public ActionResult Post(Ingresos ingreso)
+        public ActionResult Post(IngresoMercaderia ingreso)
         {
             // Lógica para agregar un nuevo ingreso
             bool resultado = sql.agregar_ingreso(ingreso);

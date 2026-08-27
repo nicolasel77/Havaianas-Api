@@ -66,7 +66,7 @@ namespace Havaianas_Api.Datos
             }
         }
 
-        internal bool agregar_ingreso(Ingresos ingreso)
+        internal bool agregar_ingreso(IngresoMercaderia ingreso)
         {
             sql.Open();
             bool resultado = false;
@@ -83,7 +83,7 @@ namespace Havaianas_Api.Datos
             return resultado;
         }
 
-        internal bool editar_ingreso(Ingresos ingreso)
+        internal bool editar_ingreso(IngresoMercaderia ingreso)
         {
             sql.Open();
             bool resultado = false;
@@ -102,7 +102,7 @@ namespace Havaianas_Api.Datos
             return resultado;
         }
 
-        internal Ingresos obtener_ingreso(int id)
+        internal IngresoMercaderia obtener_ingreso(int id)
         {
             sql.Open();
             using (SqlCommand cmd = new SqlCommand("SELECT [ID], ISNULL([Fecha], GETDATE()), ISNULL([ID_Producto], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Total], 0)" +
@@ -113,7 +113,7 @@ namespace Havaianas_Api.Datos
                 {
                     if (reader.Read())
                     {
-                        Ingresos ingreso = new Ingresos
+                        IngresoMercaderia ingreso = new IngresoMercaderia
                         {
                             id = reader.GetInt32(0),
                             fecha = reader.GetDateTime(1),
@@ -130,7 +130,7 @@ namespace Havaianas_Api.Datos
             return null;
         }
 
-        internal Ingresos[] obtener_ingresos(DateTime fecha, DateTime fechaFin)
+        internal IngresoMercaderia[] obtener_ingresos(DateTime fecha, DateTime fechaFin)
         {
             sql.Open();
             using (SqlCommand cmd = new SqlCommand("SELECT [ID], ISNULL([Fecha], GETDATE()), ISNULL([ID_Producto], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Total], 0)" +
@@ -140,10 +140,10 @@ namespace Havaianas_Api.Datos
                 cmd.Parameters.AddWithValue("@fechaFin", fechaFin);
                 using (SqlDataReader reader = cmd.ExecuteReader())
                 {
-                    List<Ingresos> ingresosList = new List<Ingresos>();
+                    List<IngresoMercaderia> ingresosList = new List<IngresoMercaderia>();
                     while (reader.Read())
                     {
-                        Ingresos ingreso = new Ingresos
+                        IngresoMercaderia ingreso = new IngresoMercaderia
                         {
                             id = reader.GetInt32(0),
                             fecha = reader.GetDateTime(1),
