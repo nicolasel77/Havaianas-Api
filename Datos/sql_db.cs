@@ -276,7 +276,7 @@ namespace Havaianas_Api.Datos
                         foreach (LineaFactura linea in factura.lineas)
                         {
                             using SqlCommand buscarProducto = new SqlCommand(
-                                "SELECT TOP 1 [ID] FROM productos WHERE [Cod_Art] = @cod_art",
+                                "SELECT TOP 1 [ID] FROM productos WHERE Activo = 1 AND [Cod_Art] = @cod_art",
                                 conexion, transaccion);
                             buscarProducto.Parameters.AddWithValue("@cod_art", linea.cod_art);
                             object producto = buscarProducto.ExecuteScalar();
@@ -941,14 +941,54 @@ namespace Havaianas_Api.Datos
                 }
             }
         }
+        /// <summary>
+        /// Recibe las líneas de venta de las sucursales.
+        /// * El producto y la forma de pago llegan con el ID de la base de la sucursal: se traducen al ID del
+        ///   servidor con ProductosSucursal / FormasPagoSucursal. Si todavía no hay equivalencia se guardan como
+        ///   llegaron (id_producto_sucursal / forma_pago_sucursal en NULL) y sp_traducir_ventas_sucursal las
+        ///   traduce cuando se cargue la equivalencia.
+        /// * Cada venta (id_sucursal + id_venta_sucursal) debe llegar completa en un mismo envío: si se reenvía,
+        ///   se reemplaza su detalle en lugar de duplicarlo.
+        /// </summary>
         internal void insertar_ventas(List<ventas> ventas)
         {
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
+            using SqlTransaction transaccion = conexion.BeginTransaction();
+
+            string sucursales = string.Join(",", ventas.Select(v => v.id_sucursal).Distinct());
+            Dictionary<(int, int), int> productosSucursal = new Dictionary<(int, int), int>();
+            using (SqlCommand cmd = new SqlCommand($"SELECT id_sucursal, id_producto_sucursal, id_producto FROM ProductosSucursal WHERE id_sucursal IN ({sucursales})", conexion, transaccion))
+            using (SqlDataReader reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    productosSucursal[(reader.GetInt32(0), reader.GetInt32(1))] = reader.GetInt32(2);
+                }
+            }
+            Dictionary<(int, int), int> formasPagoSucursal = new Dictionary<(int, int), int>();
+            using (SqlCommand cmd = new SqlCommand($"SELECT id_sucursal, id_forma_pago_sucursal, id_forma_pago FROM FormasPagoSucursal WHERE id_sucursal IN ({sucursales})", conexion, transaccion))
+            using (SqlDataReader reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    formasPagoSucursal[(reader.GetInt32(0), reader.GetInt32(1))] = reader.GetInt32(2);
+                }
+            }
+
+            HashSet<(int, int)> ventasConDetalleBorrado = new HashSet<(int, int)>();
+
             foreach (var venta in ventas)
             {
+                object formaPagoSucursal = DBNull.Value;
+                if (formasPagoSucursal.TryGetValue((venta.id_sucursal, venta.forma_pago), out int formaPagoServidor))
+                {
+                    formaPagoSucursal = venta.forma_pago;
+                    venta.forma_pago = formaPagoServidor;
+                }
+
                 // Primero chequear que no exista el registro con id_venta_sucursal y id_sucursal
-                using (SqlCommand checkCmd = new SqlCommand("SELECT [ID] FROM ventas WHERE ISNULL(id_venta_sucursal, '') = ISNULL(@id_venta_sucursal, '') AND ISNULL(id_sucursal, 0) = ISNULL(@id_sucursal, 0)", conexion))
+                using (SqlCommand checkCmd = new SqlCommand("SELECT [ID] FROM ventas WHERE ISNULL(id_venta_sucursal, '') = ISNULL(@id_venta_sucursal, '') AND ISNULL(id_sucursal, 0) = ISNULL(@id_sucursal, 0)", conexion, transaccion))
                 {
                     checkCmd.Parameters.AddWithValue("@id_venta_sucursal", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
                     checkCmd.Parameters.AddWithValue("@id_sucursal", (object)venta.id_sucursal ?? System.DBNull.Value);
@@ -956,7 +996,7 @@ namespace Havaianas_Api.Datos
                     if (existing != null && existing != DBNull.Value)
                     {
                         // actualizar
-                        using (SqlCommand cmd = new SqlCommand("UPDATE ventas SET [numero]=@numero, [fecha]=@fecha, [tipo_factura]=@tipo_factura, [cliente]=@cliente, [vendedor]=@vendedor, [forma_pago]=@forma_pago, [subTotal]=@subTotal, [iva]=@iva, [descuento]=@descuento, [total]=@total, [observaciones]=@observaciones, [estado]=@estado, [CAE]=@CAE, [hora]=@hora, [id_venta_sucursal]=@id_venta_sucursal WHERE [ID]=@id", conexion))
+                        using (SqlCommand cmd = new SqlCommand("UPDATE ventas SET [numero]=@numero, [fecha]=@fecha, [tipo_factura]=@tipo_factura, [cliente]=@cliente, [vendedor]=@vendedor, [forma_pago]=@forma_pago, [forma_pago_sucursal]=@forma_pago_sucursal, [subTotal]=@subTotal, [iva]=@iva, [descuento]=@descuento, [total]=@total, [observaciones]=@observaciones, [estado]=@estado, [CAE]=@CAE, [hora]=@hora, [id_venta_sucursal]=@id_venta_sucursal WHERE [ID]=@id", conexion, transaccion))
                         {
                             cmd.Parameters.AddWithValue("@id", Convert.ToInt32(existing));
                             cmd.Parameters.AddWithValue("@numero", venta.numero);
@@ -965,13 +1005,14 @@ namespace Havaianas_Api.Datos
                             cmd.Parameters.AddWithValue("@cliente", venta.cliente);
                             cmd.Parameters.AddWithValue("@vendedor", venta.vendedor);
                             cmd.Parameters.AddWithValue("@forma_pago", venta.forma_pago);
+                            cmd.Parameters.AddWithValue("@forma_pago_sucursal", formaPagoSucursal);
                             cmd.Parameters.AddWithValue("@subTotal", venta.subTotal);
                             cmd.Parameters.AddWithValue("@iva", venta.iva);
                             cmd.Parameters.AddWithValue("@descuento", venta.descuento);
                             cmd.Parameters.AddWithValue("@total", venta.total);
-                            cmd.Parameters.AddWithValue("@observaciones", venta.observaciones);
+                            cmd.Parameters.AddWithValue("@observaciones", (object?)venta.observaciones ?? DBNull.Value);
                             cmd.Parameters.AddWithValue("@estado", venta.estado);
-                            cmd.Parameters.AddWithValue("@CAE", venta.CAE);
+                            cmd.Parameters.AddWithValue("@CAE", (object?)venta.CAE ?? DBNull.Value);
                             cmd.Parameters.AddWithValue("@hora", venta.hora);
                             cmd.Parameters.AddWithValue("@id_venta_sucursal", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
                             cmd.ExecuteNonQuery();
@@ -980,9 +1021,9 @@ namespace Havaianas_Api.Datos
                     else
                     {
                         // insertar
-                        using (SqlCommand cmd = new SqlCommand($"INSERT INTO ventas ([numero], [fecha], [tipo_factura], [cliente], [vendedor], [forma_pago], [subTotal], [iva], " +
+                        using (SqlCommand cmd = new SqlCommand($"INSERT INTO ventas ([numero], [fecha], [tipo_factura], [cliente], [vendedor], [forma_pago], [forma_pago_sucursal], [subTotal], [iva], " +
                             "[descuento], [total], [observaciones], [estado], [id_sucursal], [CAE], [hora], [id_venta_sucursal]) " +
-                            $"VALUES (@numero, @fecha, @tipo_factura, @cliente, @vendedor, @forma_pago, @subTotal, @iva, @descuento, @total, @observaciones, @estado, @id_sucursal, @CAE, @hora, @id_venta_sucursal)", conexion))
+                            $"VALUES (@numero, @fecha, @tipo_factura, @cliente, @vendedor, @forma_pago, @forma_pago_sucursal, @subTotal, @iva, @descuento, @total, @observaciones, @estado, @id_sucursal, @CAE, @hora, @id_venta_sucursal)", conexion, transaccion))
                         {
                             cmd.Parameters.AddWithValue("@numero", venta.numero);
                             cmd.Parameters.AddWithValue("@fecha", venta.fecha);
@@ -990,36 +1031,60 @@ namespace Havaianas_Api.Datos
                             cmd.Parameters.AddWithValue("@cliente", venta.cliente);
                             cmd.Parameters.AddWithValue("@vendedor", venta.vendedor);
                             cmd.Parameters.AddWithValue("@forma_pago", venta.forma_pago);
+                            cmd.Parameters.AddWithValue("@forma_pago_sucursal", formaPagoSucursal);
                             cmd.Parameters.AddWithValue("@subTotal", venta.subTotal);
                             cmd.Parameters.AddWithValue("@iva", venta.iva);
                             cmd.Parameters.AddWithValue("@descuento", venta.descuento);
                             cmd.Parameters.AddWithValue("@total", venta.total);
-                            cmd.Parameters.AddWithValue("@observaciones", venta.observaciones);
+                            cmd.Parameters.AddWithValue("@observaciones", (object?)venta.observaciones ?? DBNull.Value);
                             cmd.Parameters.AddWithValue("@estado", venta.estado);
                             cmd.Parameters.AddWithValue("@id_sucursal", (object)venta.id_sucursal ?? System.DBNull.Value);
-                            cmd.Parameters.AddWithValue("@CAE", venta.CAE);
+                            cmd.Parameters.AddWithValue("@CAE", (object?)venta.CAE ?? DBNull.Value);
                             cmd.Parameters.AddWithValue("@hora", venta.hora);
                             cmd.Parameters.AddWithValue("@id_venta_sucursal", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
                             cmd.ExecuteNonQuery();
                         }
                     }
-                    
-                    // insertar el detalle_ventas
-                    using (SqlCommand cmd = new SqlCommand("INSERT INTO detalle_ventas (id_venta, id_producto, cantidad, precio, descuento, subtotal, id_sucursal)" +
-                        " VALUES(@id_venta, @id_producto, @cantidad, @precio, @descuento, @subtotal, @id_sucursal)", conexion))
-                    {
-                        cmd.Parameters.AddWithValue("@id_venta", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
-                        cmd.Parameters.AddWithValue("@id_producto", venta.id_producto);
-                        cmd.Parameters.AddWithValue("@cantidad", venta.cantidad);
-                        cmd.Parameters.AddWithValue("@precio", venta.precio);
-                        cmd.Parameters.AddWithValue("@id_sucursal", (object)venta.id_sucursal ?? System.DBNull.Value);
-                        cmd.Parameters.AddWithValue("@descuento", venta.descuento);
-                        cmd.Parameters.AddWithValue("@subtotal", venta.subTotal);
+                }
 
+                // Si la venta ya estaba cargada (reenvío), se reemplaza su detalle: se borra una sola vez por envío.
+                // Sin id_venta_sucursal no se puede identificar la venta, así que no se borra nada.
+                if (venta.id_venta_sucursal > 0 && ventasConDetalleBorrado.Add((venta.id_sucursal, venta.id_venta_sucursal)))
+                {
+                    using (SqlCommand cmd = new SqlCommand("DELETE FROM detalle_ventas WHERE id_sucursal = @id_sucursal AND id_venta = @id_venta", conexion, transaccion))
+                    {
+                        cmd.Parameters.AddWithValue("@id_sucursal", venta.id_sucursal);
+                        cmd.Parameters.AddWithValue("@id_venta", venta.id_venta_sucursal);
                         cmd.ExecuteNonQuery();
                     }
                 }
+
+                // Producto: ID de la sucursal -> ID del servidor
+                int idProducto = venta.id_producto;
+                object idProductoSucursal = DBNull.Value;
+                if (productosSucursal.TryGetValue((venta.id_sucursal, venta.id_producto), out int idProductoServidor))
+                {
+                    idProducto = idProductoServidor;
+                    idProductoSucursal = venta.id_producto;
+                }
+
+                // insertar el detalle_ventas
+                using (SqlCommand cmd = new SqlCommand("INSERT INTO detalle_ventas (id_venta, id_producto, id_producto_sucursal, cantidad, precio, descuento, subtotal, id_sucursal)" +
+                    " VALUES(@id_venta, @id_producto, @id_producto_sucursal, @cantidad, @precio, @descuento, @subtotal, @id_sucursal)", conexion, transaccion))
+                {
+                    cmd.Parameters.AddWithValue("@id_venta", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
+                    cmd.Parameters.AddWithValue("@id_producto", idProducto);
+                    cmd.Parameters.AddWithValue("@id_producto_sucursal", idProductoSucursal);
+                    cmd.Parameters.AddWithValue("@cantidad", venta.cantidad);
+                    cmd.Parameters.AddWithValue("@precio", venta.precio);
+                    cmd.Parameters.AddWithValue("@id_sucursal", (object)venta.id_sucursal ?? System.DBNull.Value);
+                    cmd.Parameters.AddWithValue("@descuento", venta.descuento);
+                    cmd.Parameters.AddWithValue("@subtotal", venta.subTotal);
+
+                    cmd.ExecuteNonQuery();
+                }
             }
+            transaccion.Commit();
         }
 
         internal ventas ultima_venta(int suc)
@@ -1239,7 +1304,7 @@ namespace Havaianas_Api.Datos
 
             using (SqlCommand cmd = new SqlCommand("SELECT TOP 1 [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], '')" +
                 $", ISNULL([Categoria], ''), ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos " +
-                " WHERE Descripcion_Codigo LIKE '%' + @id + '%' OR CONVERT(varchar, EAN_2025)=@id OR CONVERT(varchar, Codigo_Equis)=@id", conexion))
+                " WHERE Activo = 1 AND (Descripcion_Codigo LIKE '%' + @id + '%' OR CONVERT(varchar, EAN_2025)=@id OR CONVERT(varchar, Codigo_Equis)=@id)", conexion))
             {
                 cmd.Parameters.AddWithValue("@id", producto);
                 using (SqlDataReader reader = cmd.ExecuteReader())
@@ -1274,7 +1339,7 @@ namespace Havaianas_Api.Datos
 
             using (SqlCommand cmd = new SqlCommand($"SELECT {(todos ? "" : "TOP 1")} [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], '')" +
                 $", ISNULL([Categoria], ''), ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos " +
-                $" WHERE Descripcion_Codigo LIKE '%' + @id + '%' OR CONVERT(varchar, EAN_2025)=@id OR CONVERT(varchar, Codigo_Equis)=@id", conexion))
+                $" WHERE Activo = 1 AND (Descripcion_Codigo LIKE '%' + @id + '%' OR CONVERT(varchar, EAN_2025)=@id OR CONVERT(varchar, Codigo_Equis)=@id)", conexion))
             {
                 cmd.Parameters.AddWithValue("@id", producto);
                 using (SqlDataReader reader = cmd.ExecuteReader())
@@ -1304,7 +1369,7 @@ namespace Havaianas_Api.Datos
         {
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
-            using (SqlCommand cmd = new SqlCommand("SELECT TOP 1 ISNULL([Cod_Art], 0) FROM productos WHERE Descripcion_Codigo LIKE '%' + @nombre + '%'", conexion))
+            using (SqlCommand cmd = new SqlCommand("SELECT TOP 1 ISNULL([Cod_Art], 0) FROM productos WHERE Activo = 1 AND Descripcion_Codigo LIKE '%' + @nombre + '%'", conexion))
             {
                 cmd.Parameters.AddWithValue("@nombre", nombre_producto);
                 var result = cmd.ExecuteScalar();
@@ -1320,12 +1385,14 @@ namespace Havaianas_Api.Datos
         }
 
         // funcion para obtener todos los productos (reubicado desde arriba)
-        public Modelos.productos[] obtener_productos()
+        // todos = true incluye los productos inactivos (duplicados ya unificados)
+        public Modelos.productos[] obtener_productos(bool todos = false)
         {
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
             string comando = "SELECT [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Categoria], '')" +
-                ", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos";
+                ", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos" +
+                (todos ? "" : " WHERE Activo = 1");
 
             using (SqlCommand cmd = new SqlCommand(comando, conexion))
             {
@@ -1359,7 +1426,7 @@ namespace Havaianas_Api.Datos
 
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
-            using (SqlCommand cmd = new SqlCommand("SELECT ISNULL(Genero, '') FROM Productos GROUP BY Genero", conexion))
+            using (SqlCommand cmd = new SqlCommand("SELECT ISNULL(Genero, '') FROM Productos WHERE Activo = 1 GROUP BY Genero", conexion))
             {
                 using (SqlDataReader reader = cmd.ExecuteReader())
                 {
@@ -1397,7 +1464,7 @@ namespace Havaianas_Api.Datos
 
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
-            using (SqlCommand cmd = new SqlCommand("SELECT ISNULL(Talles, '') FROM Productos GROUP BY Talles ORDER BY Talles", conexion))
+            using (SqlCommand cmd = new SqlCommand("SELECT ISNULL(Talles, '') FROM Productos WHERE Activo = 1 GROUP BY Talles ORDER BY Talles", conexion))
             {
                 using (SqlDataReader reader = cmd.ExecuteReader())
                 {
@@ -1416,7 +1483,7 @@ namespace Havaianas_Api.Datos
 
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
-            using (SqlCommand cmd = new SqlCommand("SELECT ISNULL(Descripcion_Codigo, '') FROM Productos GROUP BY Descripcion_Codigo ORDER BY Descripcion_Codigo", conexion))
+            using (SqlCommand cmd = new SqlCommand("SELECT ISNULL(Descripcion_Codigo, '') FROM Productos WHERE Activo = 1 GROUP BY Descripcion_Codigo ORDER BY Descripcion_Codigo", conexion))
             {
                 using (SqlDataReader reader = cmd.ExecuteReader())
                 {
@@ -1441,7 +1508,7 @@ namespace Havaianas_Api.Datos
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
             string comando = $"SELECT [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Categoria], '')" +
-                $", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos WHERE Codigo_Equis={codigo}";
+                $", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos WHERE Activo = 1 AND Codigo_Equis={codigo}";
 
             using (SqlCommand cmd = new SqlCommand(comando, conexion))
             {
@@ -1474,7 +1541,7 @@ namespace Havaianas_Api.Datos
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
             string comando = $"SELECT TOP 1 [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Categoria], '')" +
-                $", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos WHERE Ean_2025={codigo}";
+                $", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos WHERE Activo = 1 AND Ean_2025={codigo}";
 
             using (SqlCommand cmd = new SqlCommand(comando, conexion))
             {
@@ -1634,36 +1701,250 @@ namespace Havaianas_Api.Datos
             }
         }
 
-        internal int agregar_producto(productos nuevoProducto)
+        const string columnas_producto = "[ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], ''), ISNULL([Categoria], '')" +
+            ", ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0)";
+
+        // Talle normalizado (sin espacios, mayúsculas), igual que en sql/unificacion
+        const string talle_normalizado = "UPPER(REPLACE(LTRIM(RTRIM(ISNULL(Talles, ''))), ' ', ''))";
+
+        private static productos leer_producto(SqlDataReader reader)
         {
-            if (nuevoProducto.id == 0)
+            return new productos
             {
-                nuevoProducto.id = obtener_proximo_orden();
+                id = reader.GetInt32(0),
+                codigo_equis = reader.GetInt64(1),
+                cod_art = reader.GetInt32(2),
+                descripcion_codigo = reader.GetString(3),
+                categoria = reader.GetString(4),
+                codigo_color = reader.GetInt32(5),
+                descripcion_color = reader.GetString(6),
+                talles = reader.GetString(7),
+                ean_2025 = reader.GetInt64(8)
+            };
+        }
+
+        /// <summary>
+        /// Busca un producto activo que sea el mismo que <paramref name="producto"/>:
+        /// mismo EAN, o mismo Cod_Art + color + talle, o misma descripción + color + talle (sin Cod_Art distintos).
+        /// </summary>
+        private static productos? buscar_duplicado(productos producto, int excluirId, SqlConnection conexion, SqlTransaction transaccion)
+        {
+            using (SqlCommand cmd = new SqlCommand($"SELECT TOP 1 {columnas_producto} FROM productos WITH (UPDLOCK, HOLDLOCK) " +
+                $"WHERE Activo = 1 AND ID <> @excluir AND (" +
+                $" (@ean > 0 AND Ean_2025 = @ean)" +
+                $" OR (@cod_art > 0 AND Cod_Art = @cod_art AND ISNULL(Codigo_Color, 0) = @codigo_color AND {talle_normalizado} = @talle)" +
+                $" OR (@descripcion <> '' AND UPPER(LTRIM(RTRIM(ISNULL(Descripcion_Codigo, '')))) = @descripcion" +
+                $"     AND UPPER(LTRIM(RTRIM(ISNULL(Descripcion_Color, '')))) = @descripcion_color AND {talle_normalizado} = @talle" +
+                $"     AND (@cod_art = 0 OR ISNULL(Cod_Art, 0) = 0 OR Cod_Art = @cod_art)))" +
+                " ORDER BY CASE WHEN Ean_2025 = @ean THEN 0 ELSE 1 END, ID", conexion, transaccion))
+            {
+                cmd.Parameters.AddWithValue("@excluir", excluirId);
+                cmd.Parameters.AddWithValue("@ean", producto.ean_2025);
+                cmd.Parameters.AddWithValue("@cod_art", producto.cod_art);
+                cmd.Parameters.AddWithValue("@codigo_color", producto.codigo_color);
+                cmd.Parameters.AddWithValue("@talle", (producto.talles ?? "").Trim().Replace(" ", "").ToUpperInvariant());
+                cmd.Parameters.AddWithValue("@descripcion", (producto.descripcion_codigo ?? "").Trim().ToUpperInvariant());
+                cmd.Parameters.AddWithValue("@descripcion_color", (producto.descripcion_color ?? "").Trim().ToUpperInvariant());
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    return reader.Read() ? leer_producto(reader) : null;
+                }
             }
+        }
+
+        /// <summary>
+        /// Agrega un producto. Si ya existe (ver buscar_duplicado) no lo agrega, devuelve 0 y el existente en <paramref name="duplicado"/>.
+        /// </summary>
+        internal int agregar_producto(productos nuevoProducto, out productos? duplicado)
+        {
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
-            using (SqlCommand cmd = new SqlCommand("INSERT INTO productos (ID, Orden, Codigo_Equis, Cod_Art, Descripcion_Codigo, Genero, curva, Categoria, Codigo_Color, Descripcion_Color, Talles, Ean_2025) " +
-                "OUTPUT INSERTED.ID VALUES (@id, @orden, @codigo_equis, @cod_art, @descripcion_codigo, '', '', @categoria, @codigo_color, @descripcion_color, @talles, @ean_2025)", conexion))
+            using SqlTransaction transaccion = conexion.BeginTransaction();
+
+            duplicado = buscar_duplicado(nuevoProducto, 0, conexion, transaccion);
+            if (duplicado != null)
+            {
+                transaccion.Rollback();
+                return 0;
+            }
+
+            if (nuevoProducto.id == 0)
+            {
+                // El ID lo asigna siempre el servidor
+                using SqlCommand cmdId = new SqlCommand("SELECT ISNULL(MAX(ID), 0) + 1 FROM productos WITH (UPDLOCK, HOLDLOCK)", conexion, transaccion);
+                nuevoProducto.id = Convert.ToInt32(cmdId.ExecuteScalar());
+            }
+            if (nuevoProducto.orden == 0)
+            {
+                using SqlCommand cmdOrden = new SqlCommand("SELECT ISNULL(MAX(Orden), 0) + 1 FROM productos", conexion, transaccion);
+                nuevoProducto.orden = Convert.ToInt32(cmdOrden.ExecuteScalar());
+            }
+
+            using (SqlCommand cmd = new SqlCommand("INSERT INTO productos (ID, Orden, Codigo_Equis, Cod_Art, Descripcion_Codigo, Genero, curva, Categoria, Codigo_Color, Descripcion_Color, Talles, Ean_2025, Activo) " +
+                "OUTPUT INSERTED.ID VALUES (@id, @orden, @codigo_equis, @cod_art, @descripcion_codigo, '', '', @categoria, @codigo_color, @descripcion_color, @talles, @ean_2025, 1)", conexion, transaccion))
             {
                 cmd.Parameters.AddWithValue("@id", nuevoProducto.id);
                 cmd.Parameters.AddWithValue("@orden", nuevoProducto.orden);
                 cmd.Parameters.AddWithValue("@codigo_equis", nuevoProducto.codigo_equis);
                 cmd.Parameters.AddWithValue("@cod_art", nuevoProducto.cod_art);
-                cmd.Parameters.AddWithValue("@descripcion_codigo", nuevoProducto.descripcion_codigo);
-                cmd.Parameters.AddWithValue("@categoria", nuevoProducto.categoria);
+                cmd.Parameters.AddWithValue("@descripcion_codigo", (nuevoProducto.descripcion_codigo ?? "").Trim());
+                cmd.Parameters.AddWithValue("@categoria", (nuevoProducto.categoria ?? "").Trim());
                 cmd.Parameters.AddWithValue("@codigo_color", nuevoProducto.codigo_color);
-                cmd.Parameters.AddWithValue("@descripcion_color", nuevoProducto.descripcion_color);
-                cmd.Parameters.AddWithValue("@talles", nuevoProducto.talles);
+                cmd.Parameters.AddWithValue("@descripcion_color", (nuevoProducto.descripcion_color ?? "").Trim());
+                cmd.Parameters.AddWithValue("@talles", (nuevoProducto.talles ?? "").Trim());
                 cmd.Parameters.AddWithValue("@ean_2025", nuevoProducto.ean_2025);
-                return (int)cmd.ExecuteScalar();
+                int nid = (int)cmd.ExecuteScalar();
+                transaccion.Commit();
+                return nid;
             }
+        }
+
+        /// <summary>
+        /// Edita un producto activo. Los campos vacíos (0 o "") conservan el valor actual.
+        /// Devuelve false si no existe; si queda igual a otro producto no lo guarda y devuelve el otro en <paramref name="duplicado"/>.
+        /// </summary>
+        internal bool editar_producto(productos producto, out productos? duplicado)
+        {
+            duplicado = null;
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlTransaction transaccion = conexion.BeginTransaction();
+
+            productos? actual;
+            using (SqlCommand cmd = new SqlCommand($"SELECT {columnas_producto} FROM productos WITH (UPDLOCK) WHERE ID = @id AND Activo = 1", conexion, transaccion))
+            {
+                cmd.Parameters.AddWithValue("@id", producto.id);
+                using SqlDataReader reader = cmd.ExecuteReader();
+                actual = reader.Read() ? leer_producto(reader) : null;
+            }
+            if (actual == null)
+            {
+                transaccion.Rollback();
+                return false;
+            }
+
+            if (producto.codigo_equis != 0) actual.codigo_equis = producto.codigo_equis;
+            if (producto.cod_art != 0) actual.cod_art = producto.cod_art;
+            if (!string.IsNullOrWhiteSpace(producto.descripcion_codigo)) actual.descripcion_codigo = producto.descripcion_codigo.Trim();
+            if (!string.IsNullOrWhiteSpace(producto.categoria)) actual.categoria = producto.categoria.Trim();
+            if (producto.codigo_color != 0) actual.codigo_color = producto.codigo_color;
+            if (!string.IsNullOrWhiteSpace(producto.descripcion_color)) actual.descripcion_color = producto.descripcion_color.Trim();
+            if (!string.IsNullOrWhiteSpace(producto.talles)) actual.talles = producto.talles.Trim();
+            if (producto.ean_2025 != 0) actual.ean_2025 = producto.ean_2025;
+
+            duplicado = buscar_duplicado(actual, actual.id, conexion, transaccion);
+            if (duplicado != null)
+            {
+                transaccion.Rollback();
+                return true;
+            }
+
+            using (SqlCommand cmd = new SqlCommand("UPDATE productos SET Codigo_Equis=@codigo_equis, Cod_Art=@cod_art, Descripcion_Codigo=@descripcion_codigo, Categoria=@categoria" +
+                ", Codigo_Color=@codigo_color, Descripcion_Color=@descripcion_color, Talles=@talles, Ean_2025=@ean_2025" +
+                (producto.orden != 0 ? ", Orden=@orden" : "") + " WHERE ID=@id", conexion, transaccion))
+            {
+                cmd.Parameters.AddWithValue("@id", actual.id);
+                cmd.Parameters.AddWithValue("@orden", producto.orden);
+                cmd.Parameters.AddWithValue("@codigo_equis", actual.codigo_equis);
+                cmd.Parameters.AddWithValue("@cod_art", actual.cod_art);
+                cmd.Parameters.AddWithValue("@descripcion_codigo", actual.descripcion_codigo);
+                cmd.Parameters.AddWithValue("@categoria", actual.categoria);
+                cmd.Parameters.AddWithValue("@codigo_color", actual.codigo_color);
+                cmd.Parameters.AddWithValue("@descripcion_color", actual.descripcion_color);
+                cmd.Parameters.AddWithValue("@talles", actual.talles);
+                cmd.Parameters.AddWithValue("@ean_2025", actual.ean_2025);
+                cmd.ExecuteNonQuery();
+            }
+            transaccion.Commit();
+            return true;
+        }
+
+        // Baja lógica: el producto deja de aparecer pero sus movimientos se conservan
+        internal bool desactivar_producto(int id)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("UPDATE productos SET Activo = 0 WHERE ID = @id AND Activo = 1", conexion))
+            {
+                cmd.Parameters.AddWithValue("@id", id);
+                return cmd.ExecuteNonQuery() > 0;
+            }
+        }
+
+        /// <summary>
+        /// Recibe el catálogo de productos de una sucursal, lo vincula con los productos del servidor
+        /// (sp_equivalencias_sucursal) y devuelve los productos de la sucursal que no se pudieron vincular.
+        /// </summary>
+        internal List<productos> equivalencias_sucursal(int suc, List<productos> productosSucursal)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlTransaction transaccion = conexion.BeginTransaction();
+
+            using (SqlCommand cmd = new SqlCommand("DELETE FROM ProductosSucursalImport WHERE id_sucursal = @suc", conexion, transaccion))
+            {
+                cmd.Parameters.AddWithValue("@suc", suc);
+                cmd.ExecuteNonQuery();
+            }
+
+            DataTable tabla = new DataTable();
+            tabla.Columns.Add("id_sucursal", typeof(int));
+            tabla.Columns.Add("ID", typeof(int));
+            tabla.Columns.Add("Codigo_Equis", typeof(long));
+            tabla.Columns.Add("Cod_Art", typeof(int));
+            tabla.Columns.Add("Descripcion_Codigo", typeof(string));
+            tabla.Columns.Add("Codigo_Color", typeof(int));
+            tabla.Columns.Add("Descripcion_Color", typeof(string));
+            tabla.Columns.Add("Talles", typeof(string));
+            tabla.Columns.Add("Ean_2025", typeof(long));
+            foreach (productos p in productosSucursal.GroupBy(p => p.id).Select(g => g.First()))
+            {
+                tabla.Rows.Add(suc, p.id, p.codigo_equis, p.cod_art, p.descripcion_codigo, p.codigo_color, p.descripcion_color, p.talles, p.ean_2025);
+            }
+
+            using (SqlBulkCopy bulk = new SqlBulkCopy(conexion, SqlBulkCopyOptions.Default, transaccion))
+            {
+                bulk.DestinationTableName = "dbo.ProductosSucursalImport";
+                foreach (DataColumn columna in tabla.Columns)
+                {
+                    bulk.ColumnMappings.Add(columna.ColumnName, columna.ColumnName);
+                }
+                bulk.WriteToServer(tabla);
+            }
+
+            List<productos> sinVincular = new List<productos>();
+            using (SqlCommand cmd = new SqlCommand("sp_equivalencias_sucursal", conexion, transaccion))
+            {
+                cmd.CommandType = CommandType.StoredProcedure;
+                cmd.Parameters.AddWithValue("@suc", suc);
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        sinVincular.Add(new productos
+                        {
+                            id = reader.GetInt32(reader.GetOrdinal("ID")),
+                            codigo_equis = reader.IsDBNull(reader.GetOrdinal("Codigo_Equis")) ? 0 : reader.GetInt64(reader.GetOrdinal("Codigo_Equis")),
+                            cod_art = reader.IsDBNull(reader.GetOrdinal("Cod_Art")) ? 0 : reader.GetInt32(reader.GetOrdinal("Cod_Art")),
+                            descripcion_codigo = reader.IsDBNull(reader.GetOrdinal("Descripcion_Codigo")) ? "" : reader.GetString(reader.GetOrdinal("Descripcion_Codigo")),
+                            categoria = "",
+                            codigo_color = reader.IsDBNull(reader.GetOrdinal("Codigo_Color")) ? 0 : reader.GetInt32(reader.GetOrdinal("Codigo_Color")),
+                            descripcion_color = reader.IsDBNull(reader.GetOrdinal("Descripcion_Color")) ? "" : reader.GetString(reader.GetOrdinal("Descripcion_Color")),
+                            talles = reader.IsDBNull(reader.GetOrdinal("Talles")) ? "" : reader.GetString(reader.GetOrdinal("Talles")),
+                            ean_2025 = reader.IsDBNull(reader.GetOrdinal("Ean_2025")) ? 0 : reader.GetInt64(reader.GetOrdinal("Ean_2025"))
+                        });
+                    }
+                }
+            }
+            transaccion.Commit();
+            return sinVincular;
         }
 
         internal int obtener_idcolor(string nombre)
         {
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
-            using (SqlCommand cmd = new SqlCommand("SELECT top 1 ISNULL(Codigo_Color, 0) FROM productos WHERE Descripcion_Color like @nombre", conexion))
+            using (SqlCommand cmd = new SqlCommand("SELECT top 1 ISNULL(Codigo_Color, 0) FROM productos WHERE Activo = 1 AND Descripcion_Color like @nombre", conexion))
             {
                 cmd.Parameters.AddWithValue("@nombre", nombre);
                 return (int)cmd.ExecuteScalar();
@@ -1671,6 +1952,132 @@ namespace Havaianas_Api.Datos
         }
 
 
+        #endregion
+
+        #region " Formas de pago "
+        // Las formas de pago se administran en el servidor; las sucursales las descargan con GET /FormasPago.
+
+        internal formas_pago[] obtener_formas_pago()
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("SELECT ID, ISNULL(Descripcion, '') FROM formas_pago ORDER BY ID", conexion))
+            using (SqlDataReader reader = cmd.ExecuteReader())
+            {
+                List<formas_pago> lista = new List<formas_pago>();
+                while (reader.Read())
+                {
+                    lista.Add(new formas_pago { id = reader.GetInt32(0), descripcion = reader.GetString(1) });
+                }
+                return lista.ToArray();
+            }
+        }
+
+        private static formas_pago? buscar_forma_pago_duplicada(formas_pago formaPago, SqlConnection conexion, SqlTransaction transaccion)
+        {
+            using (SqlCommand cmd = new SqlCommand("SELECT TOP 1 ID, ISNULL(Descripcion, '') FROM formas_pago WITH (UPDLOCK, HOLDLOCK) " +
+                "WHERE ID <> @id AND UPPER(LTRIM(RTRIM(ISNULL(Descripcion, '')))) = @descripcion", conexion, transaccion))
+            {
+                cmd.Parameters.AddWithValue("@id", formaPago.id);
+                cmd.Parameters.AddWithValue("@descripcion", formaPago.descripcion.Trim().ToUpperInvariant());
+                using SqlDataReader reader = cmd.ExecuteReader();
+                return reader.Read() ? new formas_pago { id = reader.GetInt32(0), descripcion = reader.GetString(1) } : null;
+            }
+        }
+
+        // Devuelve el ID nuevo, o 0 si ya existe una forma de pago con esa descripción (en duplicado)
+        internal int agregar_forma_pago(formas_pago formaPago, out formas_pago? duplicado)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlTransaction transaccion = conexion.BeginTransaction();
+
+            formaPago.id = 0;
+            duplicado = buscar_forma_pago_duplicada(formaPago, conexion, transaccion);
+            if (duplicado != null)
+            {
+                transaccion.Rollback();
+                return 0;
+            }
+
+            // Funciona tanto si formas_pago.ID es IDENTITY como si se asigna a mano
+            using (SqlCommand cmd = new SqlCommand(
+                "IF COLUMNPROPERTY(OBJECT_ID('formas_pago'), 'ID', 'IsIdentity') = 1 " +
+                "    INSERT INTO formas_pago (Descripcion) OUTPUT INSERTED.ID VALUES (@descripcion) " +
+                "ELSE " +
+                "    INSERT INTO formas_pago (ID, Descripcion) OUTPUT INSERTED.ID SELECT ISNULL(MAX(ID), 0) + 1, @descripcion FROM formas_pago WITH (UPDLOCK, HOLDLOCK)",
+                conexion, transaccion))
+            {
+                cmd.Parameters.AddWithValue("@descripcion", formaPago.descripcion.Trim());
+                int nid = Convert.ToInt32(cmd.ExecuteScalar());
+                transaccion.Commit();
+                return nid;
+            }
+        }
+
+        // Devuelve false si no existe; si la descripción ya la usa otra forma de pago no guarda y la devuelve en duplicado
+        internal bool editar_forma_pago(formas_pago formaPago, out formas_pago? duplicado)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlTransaction transaccion = conexion.BeginTransaction();
+
+            duplicado = buscar_forma_pago_duplicada(formaPago, conexion, transaccion);
+            if (duplicado != null)
+            {
+                transaccion.Rollback();
+                return true;
+            }
+
+            using (SqlCommand cmd = new SqlCommand("UPDATE formas_pago SET Descripcion = @descripcion WHERE ID = @id", conexion, transaccion))
+            {
+                cmd.Parameters.AddWithValue("@id", formaPago.id);
+                cmd.Parameters.AddWithValue("@descripcion", formaPago.descripcion.Trim());
+                bool existe = cmd.ExecuteNonQuery() > 0;
+                transaccion.Commit();
+                return existe;
+            }
+        }
+
+        /// <summary>
+        /// Recibe las formas de pago de una sucursal y las vincula por descripción con las del servidor
+        /// (FormasPagoSucursal). Las vinculadas a mano con otra descripción no se pisan si no hay coincidencia.
+        /// Devuelve las que no se pudieron vincular.
+        /// </summary>
+        internal List<formas_pago> equivalencias_formas_pago(int suc, List<formas_pago> formasSucursal)
+        {
+            formas_pago[] servidor = obtener_formas_pago();
+            List<formas_pago> sinVincular = new List<formas_pago>();
+
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlTransaction transaccion = conexion.BeginTransaction();
+            foreach (formas_pago fp in formasSucursal)
+            {
+                formas_pago? igual = servidor.FirstOrDefault(s => string.Equals(s.descripcion.Trim(), (fp.descripcion ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+                if (igual == null)
+                {
+                    sinVincular.Add(fp);
+                    continue;
+                }
+                using (SqlCommand cmd = new SqlCommand(
+                    "MERGE FormasPagoSucursal AS t " +
+                    "USING (SELECT @suc AS id_sucursal, @id_suc AS id_forma_pago_sucursal) AS m " +
+                    "ON t.id_sucursal = m.id_sucursal AND t.id_forma_pago_sucursal = m.id_forma_pago_sucursal " +
+                    "WHEN MATCHED THEN UPDATE SET id_forma_pago = @id, descripcion_sucursal = @descripcion, fecha = GETDATE() " +
+                    "WHEN NOT MATCHED THEN INSERT (id_sucursal, id_forma_pago_sucursal, descripcion_sucursal, id_forma_pago) VALUES (@suc, @id_suc, @descripcion, @id);",
+                    conexion, transaccion))
+                {
+                    cmd.Parameters.AddWithValue("@suc", suc);
+                    cmd.Parameters.AddWithValue("@id_suc", fp.id);
+                    cmd.Parameters.AddWithValue("@descripcion", fp.descripcion ?? "");
+                    cmd.Parameters.AddWithValue("@id", igual.id);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+            transaccion.Commit();
+            return sinVincular;
+        }
         #endregion
     }
 }
