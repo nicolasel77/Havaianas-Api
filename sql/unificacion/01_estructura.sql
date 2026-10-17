@@ -252,7 +252,12 @@ GO
 -- Se consideran el MISMO producto (unificación automática):
 --   * mismo EAN y mismo Codigo_Color y mismo Talle
 --   * mismo Cod_Art y mismo Codigo_Color y mismo Talle, sin EANs distintos entre ellos
--- Se elige como producto final el que tiene EAN, luego Cod_Art, luego Codigo_Equis, luego el menor ID.
+--   * misma Descripción + Descripción de color + Talle (sin distinguir mayúsculas), sin EANs ni Cod_Art distintos
+-- Producto final (el que queda), en este orden de prioridad:
+--   1) descripción en MAYÚSCULAS y datos completos (talle, color y EAN)
+--   2) datos completos
+--   3) descripción en MAYÚSCULAS
+--   4) con EAN, con Cod_Art, con Codigo_Equis, menor ID
 -- Lo dudoso NO se unifica: se lista para revisar a mano (ver 02_diagnostico.sql).
 ------------------------------------------------------------------------------------------
 CREATE OR ALTER PROCEDURE dbo.sp_proponer_unificacion
@@ -269,8 +274,14 @@ BEGIN
            ISNULL(p.Cod_Art, 0) AS Cod_Art,
            ISNULL(p.Codigo_Color, 0) AS Codigo_Color,
            UPPER(REPLACE(LTRIM(RTRIM(ISNULL(p.Talles, ''))), ' ', '')) AS Talle,
+           UPPER(LTRIM(RTRIM(ISNULL(p.Descripcion_Codigo, '')))) AS Descripcion,
+           UPPER(LTRIM(RTRIM(ISNULL(p.Descripcion_Color, '')))) AS Color,
            -- prioridad para elegir el producto que queda (1 = mejor)
-           ROW_NUMBER() OVER (ORDER BY CASE WHEN ISNULL(p.Ean_2025, 0) > 0 THEN 0 ELSE 1 END,
+           ROW_NUMBER() OVER (ORDER BY CASE WHEN m.mayusculas = 1 AND m.completo = 1 THEN 0
+                                            WHEN m.completo = 1 THEN 1
+                                            WHEN m.mayusculas = 1 THEN 2
+                                            ELSE 3 END,
+                                       CASE WHEN ISNULL(p.Ean_2025, 0) > 0 THEN 0 ELSE 1 END,
                                        CASE WHEN ISNULL(p.Cod_Art, 0) > 0 THEN 0 ELSE 1 END,
                                        CASE WHEN ISNULL(p.Codigo_Equis, 0) > 0 THEN 0 ELSE 1 END,
                                        p.ID) AS prioridad,
@@ -278,6 +289,18 @@ BEGIN
            CAST('' AS varchar(50)) AS motivo
     INTO #p
     FROM dbo.Productos p
+    CROSS APPLY (SELECT
+        -- MAYÚSCULAS: la descripción (y el color, si tiene) no cambian al pasarlos a mayúsculas
+        CASE WHEN LTRIM(RTRIM(ISNULL(p.Descripcion_Codigo, ''))) <> ''
+              AND ISNULL(p.Descripcion_Codigo, '') COLLATE Latin1_General_CS_AS = UPPER(ISNULL(p.Descripcion_Codigo, '')) COLLATE Latin1_General_CS_AS
+              AND ISNULL(p.Descripcion_Color, '') COLLATE Latin1_General_CS_AS = UPPER(ISNULL(p.Descripcion_Color, '')) COLLATE Latin1_General_CS_AS
+             THEN 1 ELSE 0 END AS mayusculas,
+        -- datos completos: talle, color y EAN
+        CASE WHEN LTRIM(RTRIM(ISNULL(p.Talles, ''))) <> ''
+              AND (ISNULL(p.Codigo_Color, 0) > 0 OR LTRIM(RTRIM(ISNULL(p.Descripcion_Color, ''))) <> '')
+              AND ISNULL(p.Ean_2025, 0) > 0
+             THEN 1 ELSE 0 END AS completo
+    ) m
     WHERE p.Activo = 1
       -- los productos que ya están en una unificación manual pendiente no se tocan
       AND NOT EXISTS (SELECT 1 FROM dbo.ProductosUnificacion u WHERE u.aplicado = 0 AND (u.id_viejo = p.ID));
@@ -310,7 +333,37 @@ BEGIN
             ON g.Cod_Art = p.Cod_Art AND g.Codigo_Color = p.Codigo_Color AND g.Talle = p.Talle
         WHERE p.grupo > g.grupo;
         SET @cambios = @cambios + @@ROWCOUNT;
+
+        -- misma descripción + color + talle, solo si en ese grupo no hay dos EAN ni dos Cod_Art distintos
+        UPDATE p SET grupo = g.grupo, motivo = CASE WHEN p.motivo = '' THEN 'DESCRIPCION_COLOR_TALLE' ELSE p.motivo END
+        FROM #p p
+        INNER JOIN (SELECT Descripcion, Color, Talle, MIN(grupo) AS grupo
+                    FROM #p WHERE Descripcion <> ''
+                    GROUP BY Descripcion, Color, Talle
+                    HAVING COUNT(DISTINCT NULLIF(Ean, 0)) <= 1 AND COUNT(DISTINCT NULLIF(Cod_Art, 0)) <= 1) g
+            ON g.Descripcion = p.Descripcion AND g.Color = p.Color AND g.Talle = p.Talle
+        WHERE p.grupo > g.grupo;
+        SET @cambios = @cambios + @@ROWCOUNT;
     END
+
+    -- Encadenando reglas un grupo podría juntar EAN, Cod_Art o colores distintos: esos no se unifican
+    -- solos (quedan para revisar a mano, ver resultado de abajo y 02_diagnostico.sql).
+    IF OBJECT_ID('tempdb..#conflicto') IS NOT NULL DROP TABLE #conflicto;
+    SELECT grupo INTO #conflicto
+    FROM #p
+    GROUP BY grupo
+    HAVING COUNT(DISTINCT NULLIF(Ean, 0)) > 1
+        OR COUNT(DISTINCT NULLIF(Cod_Art, 0)) > 1
+        OR COUNT(DISTINCT NULLIF(Codigo_Color, 0)) > 1;
+
+    SELECT 'Grupos con datos contradictorios (NO se unifican, revisar)' AS resultado, c.grupo,
+           pr.ID, pr.Descripcion_Codigo, pr.Descripcion_Color, pr.Talles, pr.Ean_2025, pr.Cod_Art, pr.Codigo_Color
+    FROM #conflicto c
+    INNER JOIN #p p ON p.grupo = c.grupo
+    INNER JOIN dbo.Productos pr ON pr.ID = p.ID
+    ORDER BY c.grupo, pr.ID;
+
+    DELETE p FROM #p p INNER JOIN #conflicto c ON c.grupo = p.grupo;
 
     INSERT INTO dbo.ProductosUnificacion (id_viejo, id_nuevo, motivo)
     SELECT p.ID, f.ID, p.motivo

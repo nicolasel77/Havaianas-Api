@@ -32,6 +32,27 @@
   - `GET`, `POST` y `PUT /FormasPago`
   - `POST /FormasPago/Equivalencias/{suc}`
 
+## Cómo se elige qué producto queda
+
+Se toman como el mismo producto los que comparten alguno de estos datos (siempre con el mismo talle):
+
+- EAN y color
+- Cod_Art y color, sin EANs distintos entre ellos
+- descripción y color, sin EANs ni Cod_Art distintos entre ellos
+
+De cada grupo queda uno, en este orden de prioridad:
+
+1. descripción en **MAYÚSCULAS** y con todos los datos (talle, color y EAN)
+2. con todos los datos
+3. en MAYÚSCULAS
+4. con EAN, con Cod_Art, con Código Equis o, si empatan, el de menor ID
+
+Los grupos con datos contradictorios (dos EAN, dos Cod_Art o dos colores distintos) no se unifican solos: quedan
+listados para revisar a mano.
+
+En las sucursales, varios productos repetidos se vinculan con el mismo producto del servidor (`ProductosSucursal`),
+así que sus ventas quedan juntas en el servidor.
+
 ## Pasos (en este orden)
 
 | # | Qué | Cambia datos |
