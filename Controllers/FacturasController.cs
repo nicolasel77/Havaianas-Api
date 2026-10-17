@@ -14,7 +14,6 @@ using Havaianas.Facturacion.Parsing;
 using Havaianas_Api.Datos;
 using Havaianas_Api.Modelos;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace Havaianas.Facturacion.Controllers
 {
@@ -126,14 +125,16 @@ namespace Havaianas.Facturacion.Controllers
                     CantidadCv = p.CantidadCv,
                     UnidadesPorCv = p.UnidadesPorCv,
                     CantidadUnidades = p.CantidadUnidades,
-                    PrecioUnitario = p.PrecioUnitario,
+                    // Precio unitario: aplicar bonificación si corresponde y luego sumar IVA 21% e IIBB 4%
+                    PrecioUnitario = (p.BonificacionPct != 0)
+                        ? (p.PrecioUnitario - (p.PrecioUnitario * p.BonificacionPct / 100)) * 1.25m
+                        : p.PrecioUnitario * 1.25m,
                     BonificacionPct = p.BonificacionPct,
                     Importe = p.Importe,
                 }).ToList()
             };
-
-            sql.IngresoMercaderia.Add(ingreso);
-            await sql.SaveChangesAsync();
+                        
+            sql.agregar_ingreso(ingreso);
 
             // Resolver mapeo automático contra MapeoProductoProveedor
             await sql.Database.ExecuteSqlInterpolatedAsync(
@@ -156,7 +157,7 @@ namespace Havaianas.Facturacion.Controllers
 
         private async Task<object?> ObtenerPreview(int ingresoId)
         {
-            var ingreso = sql.obtener_ingreso_con_detalle(ingresoId);
+            IngresoMercaderia ingreso = sql.obtener_ingreso_con_detalle(ingresoId);
 
             if (ingreso == null) return null;
 
@@ -196,7 +197,7 @@ namespace Havaianas.Facturacion.Controllers
         // -----------------------------------------------------------------
         public record MapearLineaRequest(int ProductoId, string Usuario);
 
-        [HttpPut("{id}/lineas/{detalleId}/mapear")]
+        [HttpPost("{id}/lineas/{detalleId}/mapear")]
         public async Task<IActionResult> MapearLinea(int id, int detalleId, [FromBody] MapearLineaRequest req)
         {
             IngresoMercaderia ingreso = sql.obtener_ingreso(id);
@@ -224,7 +225,19 @@ namespace Havaianas.Facturacion.Controllers
                     ArticuloDescripcion = $"{linea.CodigoModelo} {linea.NombreModelo}",
                     UsuarioMapeo = req.Usuario
                 });
-                await sql.SaveChangesAsync();
+                await sql.agregar_mapeo(new List<MapeoProductoProveedor>
+                {
+                    new MapeoProductoProveedor
+                    {
+                        ProveedorId = ingreso.ProveedorId,
+                        CodigoProductoProveedor = linea.CodigoProductoProveedor,
+                        Color = linea.Color ?? "",
+                        Talle = talle,
+                        ProductoId = req.ProductoId,
+                        ArticuloDescripcion = $"{linea.CodigoModelo} {linea.NombreModelo}",
+                        UsuarioMapeo = req.Usuario
+                    }
+                });
             }
 
             return Ok(await ObtenerPreview(id));

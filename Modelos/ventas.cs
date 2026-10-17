@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using Microsoft.Win32;
+using System.Security.Cryptography;
 
 namespace Havaianas_Api.Modelos
 {
@@ -27,8 +28,10 @@ namespace Havaianas_Api.Modelos
         public int estado { get; set; }
         public string CAE { get; set; }
         public DateTime hora { get; set; }
-        public int cantidad { get; set; }
+        public decimal cantidad { get; set; }
         public decimal precio { get;  set; }
         public int id_venta_sucursal { get; set; }
+        public string? desc_talle { get; set; } = string.Empty;
+        public string? desc_color { get; set; } = string.Empty;
     }
 }

@@ -17,6 +17,13 @@ namespace Havaianas_Api.Controllers
             return Ok(tras);
         }
 
+        [HttpGet("ultimos")]
+        public ActionResult<IEnumerable<traslados>> GetUltimos(int cantidad = 20)
+        {
+            traslados[] tras = sql.obtener_ultimos_traslados(cantidad);
+            return Ok(tras);
+        }
+
         [HttpGet("{id}")]
         public ActionResult<traslados> Get(int id)
         {
@@ -53,6 +60,21 @@ namespace Havaianas_Api.Controllers
             else
             {
                 return BadRequest(new { message = "Error al agregar el traslado" });
+            }
+        }
+
+        // DELETE api/<TrasladosController>/5
+        [HttpDelete("{id}")]
+        public ActionResult Delete(int id)
+        {
+            bool resultado = sql.borrar_traslado(id);
+            if (resultado)
+            {
+                return Ok(new { message = "Traslado borrado correctamente" });
+            }
+            else
+            {
+                return BadRequest(new { message = "Error al borrar el traslado" });
             }
         }
     }

@@ -19,9 +19,9 @@ namespace Havaianas_Api.Controllers
         // - agDia: Agregar agrupación por día (opcional, por defecto false)
         // - agProd: Agregar agrupación por producto (opcional, por defecto false)
         // - agSuc: Agregar agrupación por sucursal (opcional, por defecto false)
-        public ActionResult<IEnumerable<Modelos.ventas>> Get(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null, bool agDia = false, bool agProd = false, bool agSuc = false)
+        public ActionResult<IEnumerable<Modelos.ventas>> Get(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null, bool agDia = false, bool agProd = false, bool agTalle = false, bool agColor = false, bool agSuc = false)
         {
-            return Ok(sql.ventas(suc, fechaInicio, fechaFin, agDia, agProd, agSuc));
+            return Ok(sql.ventas(suc, fechaInicio, fechaFin, agDia, agProd, agTalle, agColor, agSuc));
         }
 
         [HttpGet("ultimo/{suc}")]
@@ -65,6 +65,17 @@ namespace Havaianas_Api.Controllers
         public ActionResult<IEnumerable<Modelos.productos_vendidos>> GetProductosVendidos(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null)
         {
             return Ok(sql.productos_vendidos(suc, fechaInicio, fechaFin));
+        }
+        [HttpGet("top-ventas-productos")]
+        public ActionResult<IEnumerable<Modelos.productos_vendidos>> GetTopVentasProductos(int suc = 0, int cantidad = 10, DateTime? fechaInicio = null, DateTime? fechaFin = null)
+        {
+            return Ok(sql.top_venta_producto(suc, cantidad, fechaInicio, fechaFin));
+        }
+
+        [HttpGet("por-tipo-pago")]
+        public ActionResult<IEnumerable<Modelos.ventas_por_tipo_pago>> GetVentasPorTipoPago(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null)
+        {
+            return Ok(sql.ventas_por_tipo_pago(suc, fechaInicio, fechaFin));
         }
     }
 }

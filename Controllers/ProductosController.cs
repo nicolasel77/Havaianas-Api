@@ -29,13 +29,52 @@ namespace Havaianas_Api.Controllers
             }
             return Ok(producto);
         }       
+        [HttpGet("Busqueda")]
+        public ActionResult<IList<productos>> GetBusqueda(string nombre, bool todos = false)
+        {
+            IList<productos> productos = sql.obtener_productos(nombre, todos);
+            
+            if (productos == null || !productos.Any())
+            {
+                return NotFound();
+            }
+            return Ok(productos);
+        }       
+        [HttpGet("codart")]
+        public ActionResult<long> GetCodArt(string nombre)
+        {
+            long producto = sql.obtener_codart(nombre);
+            
+            if (producto == 0)
+            {
+                return NotFound();
+            }
+            return Ok(producto);
+        }
+        [HttpGet("idcolor")]
+        public ActionResult<int> GetIdColor(string nombre)
+        {
+            int producto = sql.obtener_idcolor(nombre);
 
-        [HttpPost, Authorize]
+            if (producto == 0)
+            {
+                return NotFound();
+            }
+            return Ok(producto);
+        }
+        [HttpPost]
         public ActionResult<productos> Post([FromBody] productos nuevoProducto)
         {
-            // Aqu solo se simula el guardado, ya que productos_db no persiste datos.
-            // En un escenario real, deberías agregar el producto a una base de datos.
-            return CreatedAtAction(nameof(Post), new { id = nuevoProducto.id }, nuevoProducto);
+            int nid = sql.agregar_producto(nuevoProducto);
+            return Ok(nid);
+        }
+
+        // Obtener el proximo orden
+        [HttpGet("ProximoOrden")]
+        public ActionResult<int> GetProximoOrden()
+        {
+            int proximoOrden = sql.obtener_proximo_orden();
+            return Ok(proximoOrden);
         }
 
         // Obtener listado de Generos

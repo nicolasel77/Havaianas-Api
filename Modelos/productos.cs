@@ -3,6 +3,7 @@
     public class productos
     {
         public int id { get; set; }
+        public int orden { get; set; }
         public long codigo_equis { get; set; }
         public int cod_art { get; set; }
         public string descripcion_codigo { get; set; }
