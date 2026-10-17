@@ -9,5 +9,6 @@
         public double cantidad { get; set; }
         public double precio { get; set; }
         public double total { get; set; }
+        public bool check { get; set; }
     }
 }

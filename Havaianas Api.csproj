@@ -1,16 +1,87 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
     <RootNamespace>Havaianas_Api</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.1" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+    <None Include=".vs\App_Data\facturas_temp\0832478e-8058-456a-b4c7-cead3eb8ffb4.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\166b32e5-4db8-4f2c-b0c4-cb7f0c95fbc4.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\18c7cc44-6749-4eb9-be55-42f08ce2f0c7.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\1e9bd3a6-be48-4d64-aa56-11b85efd8db5.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\1ec0b64a-384f-4b0c-a6e6-f44ff424a48c.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\1f65f5c3-d128-4fa2-bf5b-639f5ee40280.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\2009ca03-20db-4092-9af3-b864f074de50.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\23559123-c52b-43f0-8251-e35b4dc551b7.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\2bba1cf3-6e7a-4897-82d3-b3cb0ce5b982.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\3aa424ad-e77e-41e3-86a8-3620f5613988.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\3c3dc394-8c8f-437b-84f0-f103ec84dff3.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\3fd3b3a7-1ea6-4d29-85b9-4b79da829a61.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\4511a620-5039-42f9-a38c-cb8e8c0d86e2.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\4a819c94-07a9-4500-a237-8167b5feabea.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\5eb44e54-7da3-4a6a-be03-11a6524f7b23.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\5fe25cfb-c78a-4c18-ad8e-9c6ef08f15be.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\60c16650-c24d-4dfa-9040-d891b52dccce.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\60c465fc-e4db-4023-b5cd-cc87836ac2b8.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\624b3059-0d64-4711-804a-ae1e3b43df0f.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\68017d78-1db0-4bd1-9d14-d639f0b9833f.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\74a95167-96e0-4670-90f2-5d9367bf7d2e.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\774e9163-1048-4a5f-8f49-e3d146b293e5.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\79e17036-eee5-4d97-8725-8f3ec3d33898.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\81451ad8-29f8-42da-9b9e-465beffd2b74.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\85cd6313-b390-49ad-a270-ed3228ceb571.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\8b4c3ab2-418a-4f5d-b99b-15754b6cb8d2.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\8da6e427-574d-4234-bcb0-9b92ca8dd34d.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\8eeb5e74-d089-4e2c-87d3-1aecd09638b2.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\90f74b82-603d-456c-b6ee-75ff09b9447f.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\93f4b900-fa11-476b-9ac7-451eddbce6f3.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\94297007-f5f9-4bef-8b01-2ddf72562619.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\95c129d8-6da4-4122-8ff4-44846d6acb0d.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\986e72a7-702f-4810-9ccb-7887f0e77369.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\99513a1f-9f5e-4018-8923-93bc7afa4221.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\9e62658e-e9f8-458b-9d4b-aa4caffa752c.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\9ea3c7bc-f63e-4e6e-a470-bffee95e2ded.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\a0ce8aa9-6b2b-41b6-ac6f-0caa4d3691de.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\a6831e04-1f6d-41e8-a8dd-aa8647f3db9f.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\a68a5ede-c6fc-4123-9328-e9172d5d2877.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\aa28d9cf-7b1e-4868-a242-ddd9245fb4f3.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\ad19fd73-ebd5-490f-bfc3-3354037f7fd7.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\aeec0c5a-de18-40e3-9a09-c6b21506f96e.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\aef86680-190a-4737-a278-2cf780fd2f75.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\b3ee4016-a5d3-4035-9981-34db8e30d2aa.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\b8340971-20e9-4320-928f-26529453d4de.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\bcd57251-71ed-448e-bb27-729f17f1bfd6.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\c0091755-8d94-4cb7-97cd-82a731c170e7.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\cbd5fb8a-5582-4a3c-a913-02734142a2d9.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\cf3f9430-daa2-4965-9a07-57129cab57f7.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\d3edf752-ed70-4377-8956-e75251cc0c65.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\d49142f7-cb89-4fb1-81cb-fcd814f53215.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\d594593b-8dd2-4528-bd27-d778ed3a41f5.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\d6818c8b-3309-458f-9f10-6faa43acefea.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\d7889d3c-1a5d-4531-bc7c-3b06d7443c7f.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\dc138731-2fbc-447b-9a8d-aa7dd1c5f316.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\ddfeaedd-f42d-404f-8d9f-b6179ef4fc1c.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\dfb02181-499b-47b9-ae55-b70eacc68316.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\e4f2c347-e21d-4ecc-81bc-e61b194fbfb3.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\e510c3c6-5570-47a4-88a2-ea0441e1eb37.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\e94ae7a0-db33-4b07-803f-f744fbcbf719.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\e9cf5443-a13f-49e6-906d-5547f89ec2e6.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\ea75c2de-cb12-4ab8-ba6b-c4012f57db6f.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\f035c1f5-a555-4edd-ac97-62608b885f01.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\f0883ce7-1b14-4c6a-a205-24cfe7b0a9a0.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\f0cfee01-55ac-4985-a2e6-e6849be76cef.pdf" />
+    <None Include=".vs\App_Data\facturas_temp\ffb33931-cd56-4fb7-9a90-6b7ec069ab78.pdf" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="7.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.1.5" />
+    <PackageReference Include="PdfPig" Version="0.1.16" />
   </ItemGroup>
 
 </Project>

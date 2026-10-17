@@ -24,6 +24,12 @@ namespace Havaianas_Api.Controllers
             return Ok(sql.ventas(suc, fechaInicio, fechaFin, agDia, agProd, agSuc));
         }
 
+        [HttpGet("ultimo/{suc}")]
+        public ActionResult<IEnumerable<Modelos.ventas>> GetUltimo(int suc)
+        {
+            return Ok(sql.ultima_venta(suc));
+        }
+
         [HttpGet("resumen-mini")]
         // GET: /Ventas/resumen-mini?suc=1&fechaInicio=2024-01-01&fechaFin=2024-01-31
         // Parámetros:
@@ -53,6 +59,12 @@ namespace Havaianas_Api.Controllers
                 // Log the exception (ex) here if needed
                 return StatusCode(500, $"Error al insertar ventas: {ex.Message}");
             }
+        }
+
+        [HttpGet("productos_vendidos")]
+        public ActionResult<IEnumerable<Modelos.productos_vendidos>> GetProductosVendidos(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null)
+        {
+            return Ok(sql.productos_vendidos(suc, fechaInicio, fechaFin));
         }
     }
 }

@@ -1,6 +1,14 @@
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// Configuración de Kestrel con puertos fijos
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenAnyIP(5143); // HTTP
+    options.ListenAnyIP(7254, listenOptions =>
+    {
+        listenOptions.UseHttps(); // HTTPS (requiere certificado)
+    });
+});
 
 // Add CORS services
 builder.Services.AddCors(options =>
@@ -14,12 +22,14 @@ builder.Services.AddCors(options =>
         });
 });
 
+// Add services to the container.
+
 builder.Services.AddControllers();
-// Swagger / OpenAPI
+
+// Swagger / OpenAPI (Swashbuckle)
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddSwaggerGen();
-// Keep minimal APIs OpenAPI helper (optional)
-builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
@@ -28,7 +38,6 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-    app.MapOpenApi();
 }
 
 app.UseHttpsRedirection();

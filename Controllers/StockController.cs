@@ -20,5 +20,18 @@ namespace Havaianas_Api.Controllers
         {
             return Ok(sql.stock(suc, fecha, producto));
         }
+        
+        [HttpGet("NombreProducto")]
+        // GET: /Stock?suc=1&fechaInicio=2024-01-01&fechaFin=2024-01-31
+        // Parámetros:
+        // - suc: ID de la sucursal (opcional, por defecto 0 para todas las sucursales)
+        // - fechaInicio: Fecha de inicio para filtrar el stock (opcional)
+        // - fechaFin: Fecha de fin para filtrar el stock (opcional)
+        // - producto: nombre del producto
+        public ActionResult<IEnumerable<Modelos.stock>> GetPorNombre(int suc = 0, DateTime? fecha = default, string? producto = "")
+        {
+            if(fecha == null) fecha = DateTime.Now;
+            return Ok(sql.stock(suc, fecha, producto));
+        }
     }
 }
