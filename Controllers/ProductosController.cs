@@ -69,6 +69,40 @@ namespace Havaianas_Api.Controllers
             return Ok(nid);
         }
 
+        // Recibe todos los productos de la base local de una sucursal (para unificar IDs)
+        [HttpPost("Sucursal/{idSucursal}")]
+        [RequestSizeLimit(50_000_000)]
+        public ActionResult PostProductosSucursal(int idSucursal, [FromBody] List<productos_sucursal> productos)
+        {
+            if (idSucursal <= 0 || productos == null || productos.Count == 0)
+            {
+                return BadRequest("No se recibieron productos.");
+            }
+            try
+            {
+                sql.guardar_productos_sucursal(idSucursal, productos);
+                return Ok(productos.Count);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error al guardar productos: {ex.Message}");
+            }
+        }
+
+        // Catalogo completo del servidor (lo descargan las sucursales)
+        [HttpGet("Catalogo")]
+        public ActionResult<IEnumerable<productos_sucursal>> GetCatalogo()
+        {
+            return Ok(sql.obtener_catalogo());
+        }
+
+        // ID local -> ID central de los productos de una sucursal
+        [HttpGet("Mapeo/{idSucursal}")]
+        public ActionResult<IEnumerable<mapeo_id>> GetMapeo(int idSucursal)
+        {
+            return Ok(sql.obtener_mapeo(idSucursal));
+        }
+
         // Obtener el proximo orden
         [HttpGet("ProximoOrden")]
         public ActionResult<int> GetProximoOrden()

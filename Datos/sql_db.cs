@@ -9,7 +9,9 @@ namespace Havaianas_Api.Datos
     public class sql_db
     {
         //private readonly string connectionString = "Data Source=NICO;Initial Catalog=dbHavaianas_servidor;Trusted_Connection=True;TrustServerCertificate=True;";
-        private readonly string connectionString = "Data Source=192.168.1.11;Initial Catalog=dbHavaianas_servidor;User Id=Nikorasu;Password=Oficina02;TrustServerCertificate=True;";
+        // La variable de entorno HAVAIANAS_CONNECTION permite apuntar a otra base (ej. dbHavaianas_servidor2 para pruebas)
+        private readonly string connectionString = Environment.GetEnvironmentVariable("HAVAIANAS_CONNECTION")
+            ?? "Data Source=192.168.1.11;Initial Catalog=dbHavaianas_servidor;User Id=Nikorasu;Password=Oficina02;TrustServerCertificate=True;";
 
         // Pequeños stubs para compatibilidad con el controlador FacturasController
         // El controlador original espera un DbContext/DbSet-like API (Include/AnyAsync/Add/SaveChangesAsync)
@@ -947,6 +949,27 @@ namespace Havaianas_Api.Datos
             conexion.Open();
             foreach (var venta in ventas)
             {
+                // Forma de pago: si la sucursal manda IDs locales se traduce a la lista unica con mapeo_formas_pago.
+                // Si todavia no esta mapeada queda con el ID local y forma_pago_sucursal NULL (lo corrige sp_unif_mapear_formas_pago).
+                int formaPago = venta.forma_pago;
+                object formaPagoSucursal = DBNull.Value;
+                if (venta.ids_centrales)
+                {
+                    formaPagoSucursal = venta.forma_pago;
+                }
+                else
+                {
+                    using SqlCommand fpCmd = new SqlCommand("SELECT ID_Central FROM mapeo_formas_pago WHERE SucursalId = @suc AND ID_Original = @fp", conexion);
+                    fpCmd.Parameters.AddWithValue("@suc", venta.id_sucursal);
+                    fpCmd.Parameters.AddWithValue("@fp", venta.forma_pago);
+                    object central = fpCmd.ExecuteScalar();
+                    if (central != null && central != DBNull.Value)
+                    {
+                        formaPago = Convert.ToInt32(central);
+                        formaPagoSucursal = venta.forma_pago;
+                    }
+                }
+
                 // Primero chequear que no exista el registro con id_venta_sucursal y id_sucursal
                 using (SqlCommand checkCmd = new SqlCommand("SELECT [ID] FROM ventas WHERE ISNULL(id_venta_sucursal, '') = ISNULL(@id_venta_sucursal, '') AND ISNULL(id_sucursal, 0) = ISNULL(@id_sucursal, 0)", conexion))
                 {
@@ -956,7 +979,7 @@ namespace Havaianas_Api.Datos
                     if (existing != null && existing != DBNull.Value)
                     {
                         // actualizar
-                        using (SqlCommand cmd = new SqlCommand("UPDATE ventas SET [numero]=@numero, [fecha]=@fecha, [tipo_factura]=@tipo_factura, [cliente]=@cliente, [vendedor]=@vendedor, [forma_pago]=@forma_pago, [subTotal]=@subTotal, [iva]=@iva, [descuento]=@descuento, [total]=@total, [observaciones]=@observaciones, [estado]=@estado, [CAE]=@CAE, [hora]=@hora, [id_venta_sucursal]=@id_venta_sucursal WHERE [ID]=@id", conexion))
+                        using (SqlCommand cmd = new SqlCommand("UPDATE ventas SET [numero]=@numero, [fecha]=@fecha, [tipo_factura]=@tipo_factura, [cliente]=@cliente, [vendedor]=@vendedor, [forma_pago]=@forma_pago, [forma_pago_sucursal]=@forma_pago_sucursal, [subTotal]=@subTotal, [iva]=@iva, [descuento]=@descuento, [total]=@total, [observaciones]=@observaciones, [estado]=@estado, [CAE]=@CAE, [hora]=@hora, [id_venta_sucursal]=@id_venta_sucursal WHERE [ID]=@id", conexion))
                         {
                             cmd.Parameters.AddWithValue("@id", Convert.ToInt32(existing));
                             cmd.Parameters.AddWithValue("@numero", venta.numero);
@@ -964,7 +987,8 @@ namespace Havaianas_Api.Datos
                             cmd.Parameters.AddWithValue("@tipo_factura", venta.tipo_factura);
                             cmd.Parameters.AddWithValue("@cliente", venta.cliente);
                             cmd.Parameters.AddWithValue("@vendedor", venta.vendedor);
-                            cmd.Parameters.AddWithValue("@forma_pago", venta.forma_pago);
+                            cmd.Parameters.AddWithValue("@forma_pago", formaPago);
+                            cmd.Parameters.AddWithValue("@forma_pago_sucursal", formaPagoSucursal);
                             cmd.Parameters.AddWithValue("@subTotal", venta.subTotal);
                             cmd.Parameters.AddWithValue("@iva", venta.iva);
                             cmd.Parameters.AddWithValue("@descuento", venta.descuento);
@@ -981,15 +1005,16 @@ namespace Havaianas_Api.Datos
                     {
                         // insertar
                         using (SqlCommand cmd = new SqlCommand($"INSERT INTO ventas ([numero], [fecha], [tipo_factura], [cliente], [vendedor], [forma_pago], [subTotal], [iva], " +
-                            "[descuento], [total], [observaciones], [estado], [id_sucursal], [CAE], [hora], [id_venta_sucursal]) " +
-                            $"VALUES (@numero, @fecha, @tipo_factura, @cliente, @vendedor, @forma_pago, @subTotal, @iva, @descuento, @total, @observaciones, @estado, @id_sucursal, @CAE, @hora, @id_venta_sucursal)", conexion))
+                            "[descuento], [total], [observaciones], [estado], [id_sucursal], [CAE], [hora], [id_venta_sucursal], [forma_pago_sucursal]) " +
+                            $"VALUES (@numero, @fecha, @tipo_factura, @cliente, @vendedor, @forma_pago, @subTotal, @iva, @descuento, @total, @observaciones, @estado, @id_sucursal, @CAE, @hora, @id_venta_sucursal, @forma_pago_sucursal)", conexion))
                         {
                             cmd.Parameters.AddWithValue("@numero", venta.numero);
                             cmd.Parameters.AddWithValue("@fecha", venta.fecha);
                             cmd.Parameters.AddWithValue("@tipo_factura", venta.tipo_factura);
                             cmd.Parameters.AddWithValue("@cliente", venta.cliente);
                             cmd.Parameters.AddWithValue("@vendedor", venta.vendedor);
-                            cmd.Parameters.AddWithValue("@forma_pago", venta.forma_pago);
+                            cmd.Parameters.AddWithValue("@forma_pago", formaPago);
+                            cmd.Parameters.AddWithValue("@forma_pago_sucursal", formaPagoSucursal);
                             cmd.Parameters.AddWithValue("@subTotal", venta.subTotal);
                             cmd.Parameters.AddWithValue("@iva", venta.iva);
                             cmd.Parameters.AddWithValue("@descuento", venta.descuento);
@@ -1005,11 +1030,19 @@ namespace Havaianas_Api.Datos
                     }
                     
                     // insertar el detalle_ventas
-                    using (SqlCommand cmd = new SqlCommand("INSERT INTO detalle_ventas (id_venta, id_producto, cantidad, precio, descuento, subtotal, id_sucursal)" +
-                        " VALUES(@id_venta, @id_producto, @cantidad, @precio, @descuento, @subtotal, @id_sucursal)", conexion))
+                    // Si la sucursal manda IDs locales se traducen al ID central con mapeo_productos.
+                    // Si todavia no esta mapeado queda con el ID local e id_producto_sucursal NULL (lo corrige sp_unif_mapear_sucursal).
+                    using (SqlCommand cmd = new SqlCommand(@"INSERT INTO detalle_ventas (id_venta, id_producto, cantidad, precio, descuento, subtotal, id_sucursal, id_producto_sucursal)
+                        SELECT @id_venta,
+                               CASE WHEN @ids_centrales = 1 THEN @id_producto ELSE ISNULL(m.ID_Central, @id_producto) END,
+                               @cantidad, @precio, @descuento, @subtotal, @id_sucursal,
+                               CASE WHEN @ids_centrales = 1 OR m.ID_Central IS NOT NULL THEN @id_producto END
+                        FROM (SELECT 1 AS x) d
+                        LEFT JOIN mapeo_productos m ON m.SucursalId = @id_sucursal AND m.ID_Original = @id_producto", conexion))
                     {
                         cmd.Parameters.AddWithValue("@id_venta", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
                         cmd.Parameters.AddWithValue("@id_producto", venta.id_producto);
+                        cmd.Parameters.AddWithValue("@ids_centrales", venta.ids_centrales);
                         cmd.Parameters.AddWithValue("@cantidad", venta.cantidad);
                         cmd.Parameters.AddWithValue("@precio", venta.precio);
                         cmd.Parameters.AddWithValue("@id_sucursal", (object)venta.id_sucursal ?? System.DBNull.Value);
@@ -1634,28 +1667,237 @@ namespace Havaianas_Api.Datos
             }
         }
 
+        // El ID lo asigna siempre el servidor. Si ya existe un producto con ese EAN devuelve su ID (no se duplica).
         internal int agregar_producto(productos nuevoProducto)
         {
-            if (nuevoProducto.id == 0)
-            {
-                nuevoProducto.id = obtener_proximo_orden();
-            }
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
-            using (SqlCommand cmd = new SqlCommand("INSERT INTO productos (ID, Orden, Codigo_Equis, Cod_Art, Descripcion_Codigo, Genero, curva, Categoria, Codigo_Color, Descripcion_Color, Talles, Ean_2025) " +
-                "OUTPUT INSERTED.ID VALUES (@id, @orden, @codigo_equis, @cod_art, @descripcion_codigo, '', '', @categoria, @codigo_color, @descripcion_color, @talles, @ean_2025)", conexion))
+            using (SqlCommand cmd = new SqlCommand(@"
+                SET XACT_ABORT ON;
+                BEGIN TRAN;
+                EXEC sp_getapplock @Resource = 'productos_nuevo_id', @LockMode = 'Exclusive', @LockOwner = 'Transaction';
+
+                DECLARE @id int = (SELECT TOP 1 ID FROM productos WHERE @ean_2025 <> 0 AND Ean_2025 = @ean_2025);
+                IF @id IS NULL
+                BEGIN
+                    SET @id = dbo.fn_unif_max_id() + 1;
+                    INSERT INTO productos (ID, Orden, Codigo_Equis, Cod_Art, Descripcion_Codigo, Genero, Curva, Categoria, Codigo_Color, Descripcion_Color, Talles, Ean_2025)
+                    VALUES (@id, CASE WHEN @orden = 0 THEN @id ELSE @orden END, @codigo_equis, @cod_art, LEFT(@descripcion_codigo, 50), LEFT(@genero, 50), LEFT(@curva, 50),
+                            LEFT(@categoria, 50), @codigo_color, LEFT(@descripcion_color, 50), LEFT(ISNULL(dbo.fn_unif_talle(@talles), @talles), 50), @ean_2025);
+                END
+                COMMIT;
+                SELECT @id;", conexion))
             {
-                cmd.Parameters.AddWithValue("@id", nuevoProducto.id);
                 cmd.Parameters.AddWithValue("@orden", nuevoProducto.orden);
                 cmd.Parameters.AddWithValue("@codigo_equis", nuevoProducto.codigo_equis);
                 cmd.Parameters.AddWithValue("@cod_art", nuevoProducto.cod_art);
-                cmd.Parameters.AddWithValue("@descripcion_codigo", nuevoProducto.descripcion_codigo);
-                cmd.Parameters.AddWithValue("@categoria", nuevoProducto.categoria);
+                cmd.Parameters.AddWithValue("@descripcion_codigo", nuevoProducto.descripcion_codigo ?? "");
+                cmd.Parameters.AddWithValue("@genero", nuevoProducto.genero ?? "");
+                cmd.Parameters.AddWithValue("@curva", nuevoProducto.curva ?? "");
+                cmd.Parameters.AddWithValue("@categoria", nuevoProducto.categoria ?? "");
                 cmd.Parameters.AddWithValue("@codigo_color", nuevoProducto.codigo_color);
-                cmd.Parameters.AddWithValue("@descripcion_color", nuevoProducto.descripcion_color);
-                cmd.Parameters.AddWithValue("@talles", nuevoProducto.talles);
+                cmd.Parameters.AddWithValue("@descripcion_color", nuevoProducto.descripcion_color ?? "");
+                cmd.Parameters.AddWithValue("@talles", nuevoProducto.talles ?? "");
                 cmd.Parameters.AddWithValue("@ean_2025", nuevoProducto.ean_2025);
-                return (int)cmd.ExecuteScalar();
+                return Convert.ToInt32(cmd.ExecuteScalar());
+            }
+        }
+
+        // Catalogo completo del servidor (lo descargan las sucursales)
+        internal List<productos_sucursal> obtener_catalogo()
+        {
+            var lista = new List<productos_sucursal>();
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand(@"SELECT ID, ISNULL(Orden, 0), ISNULL(Codigo_Equis, 0), ISNULL(Cod_Art, 0), Descripcion_Codigo, Categoria, Genero,
+                    ISNULL(Codigo_Color, 0), Descripcion_Color, Talles, Curva, ISNULL(Ean_2025, 0) FROM productos ORDER BY ID", conexion))
+            using (SqlDataReader reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    lista.Add(new productos_sucursal
+                    {
+                        id = reader.GetInt32(0),
+                        orden = reader.GetInt32(1),
+                        codigo_equis = reader.GetInt64(2),
+                        cod_art = reader.GetInt32(3),
+                        descripcion_codigo = reader.IsDBNull(4) ? null : reader.GetString(4),
+                        categoria = reader.IsDBNull(5) ? null : reader.GetString(5),
+                        genero = reader.IsDBNull(6) ? null : reader.GetString(6),
+                        codigo_color = reader.GetInt32(7),
+                        descripcion_color = reader.IsDBNull(8) ? null : reader.GetString(8),
+                        talles = reader.IsDBNull(9) ? null : reader.GetString(9),
+                        curva = reader.IsDBNull(10) ? null : reader.GetString(10),
+                        ean_2025 = reader.GetInt64(11)
+                    });
+                }
+            }
+            return lista;
+        }
+
+        // ID local -> ID central de los productos de una sucursal
+        internal List<mapeo_id> obtener_mapeo(int idSucursal)
+        {
+            return leer_mapeo("mapeo_productos", idSucursal);
+        }
+
+        // ID local -> ID unico de las formas de pago de una sucursal
+        internal List<mapeo_id> obtener_mapeo_formas_pago(int idSucursal)
+        {
+            return leer_mapeo("mapeo_formas_pago", idSucursal);
+        }
+
+        // Lista unica de formas de pago
+        internal List<formas_pago> obtener_formas_pago()
+        {
+            var lista = new List<formas_pago>();
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("SELECT idTipo, descripcion, ISNULL(porcentaje, 0) FROM formas_pago ORDER BY idTipo", conexion))
+            using (SqlDataReader reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    lista.Add(new formas_pago
+                    {
+                        id = reader.GetInt32(0),
+                        descripcion = reader.IsDBNull(1) ? null : reader.GetString(1),
+                        porcentaje = reader.GetDecimal(2)
+                    });
+                }
+            }
+            return lista;
+        }
+
+        // Reemplaza la tabla de formas de pago de una sucursal y la mapea a la lista unica
+        internal void guardar_formas_pago_sucursal(int idSucursal, List<formas_pago> formas)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (var transaccion = conexion.BeginTransaction())
+            {
+                using (SqlCommand cmd = new SqlCommand("DELETE FROM formas_pago_sucursal WHERE SucursalId = @suc", conexion, transaccion))
+                {
+                    cmd.Parameters.AddWithValue("@suc", idSucursal);
+                    cmd.ExecuteNonQuery();
+                }
+                // Si la sucursal manda un ID repetido, queda el primero
+                foreach (var f in formas.GroupBy(f => f.id).Select(g => g.First()))
+                {
+                    using SqlCommand cmd = new SqlCommand(@"INSERT INTO formas_pago_sucursal (SucursalId, idTipo, descripcion, porcentaje, FechaRecibido)
+                        VALUES (@suc, @id, @descripcion, @porcentaje, GETDATE())", conexion, transaccion);
+                    cmd.Parameters.AddWithValue("@suc", idSucursal);
+                    cmd.Parameters.AddWithValue("@id", f.id);
+                    cmd.Parameters.AddWithValue("@descripcion", (object?)f.descripcion ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@porcentaje", f.porcentaje);
+                    cmd.ExecuteNonQuery();
+                }
+                transaccion.Commit();
+            }
+
+            using (SqlCommand cmd = new SqlCommand("dbo.sp_unif_mapear_formas_pago", conexion))
+            {
+                cmd.CommandType = CommandType.StoredProcedure;
+                cmd.Parameters.AddWithValue("@suc", idSucursal);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        private List<mapeo_id> leer_mapeo(string tabla, int idSucursal)
+        {
+            var lista = new List<mapeo_id>();
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand($"SELECT ID_Original, ID_Central FROM {tabla} WHERE SucursalId = @suc", conexion))
+            {
+                cmd.Parameters.AddWithValue("@suc", idSucursal);
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        lista.Add(new mapeo_id { id_original = reader.GetInt32(0), id_central = reader.GetInt32(1) });
+                    }
+                }
+            }
+            return lista;
+        }
+
+        // Reemplaza la copia de productos de una sucursal (se usa para unificar IDs con el servidor)
+        internal void guardar_productos_sucursal(int idSucursal, List<productos_sucursal> productos)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+
+            using (SqlCommand cmd = new SqlCommand(@"
+                IF OBJECT_ID('dbo.productos_sucursal') IS NULL
+                CREATE TABLE dbo.productos_sucursal (
+                    SucursalId int NOT NULL,
+                    ID_Original int NOT NULL,
+                    Orden int NULL,
+                    Codigo_Equis bigint NULL,
+                    Cod_Art int NULL,
+                    Descripcion_Codigo nvarchar(100) NULL,
+                    Categoria nvarchar(100) NULL,
+                    Genero nvarchar(100) NULL,
+                    Codigo_Color int NULL,
+                    Descripcion_Color nvarchar(100) NULL,
+                    Talles nvarchar(50) NULL,
+                    Curva nvarchar(50) NULL,
+                    Ean_2025 bigint NULL,
+                    FechaRecibido datetime NOT NULL,
+                    CONSTRAINT PK_productos_sucursal PRIMARY KEY (SucursalId, ID_Original))", conexion))
+            {
+                cmd.ExecuteNonQuery();
+            }
+
+            var tabla = new DataTable();
+            tabla.Columns.Add("SucursalId", typeof(int));
+            tabla.Columns.Add("ID_Original", typeof(int));
+            tabla.Columns.Add("Orden", typeof(int));
+            tabla.Columns.Add("Codigo_Equis", typeof(long));
+            tabla.Columns.Add("Cod_Art", typeof(int));
+            tabla.Columns.Add("Descripcion_Codigo", typeof(string));
+            tabla.Columns.Add("Categoria", typeof(string));
+            tabla.Columns.Add("Genero", typeof(string));
+            tabla.Columns.Add("Codigo_Color", typeof(int));
+            tabla.Columns.Add("Descripcion_Color", typeof(string));
+            tabla.Columns.Add("Talles", typeof(string));
+            tabla.Columns.Add("Curva", typeof(string));
+            tabla.Columns.Add("Ean_2025", typeof(long));
+            tabla.Columns.Add("FechaRecibido", typeof(DateTime));
+
+            DateTime ahora = DateTime.Now;
+            // Si la sucursal manda un ID repetido, queda el primero
+            foreach (var p in productos.GroupBy(p => p.id).Select(g => g.First()))
+            {
+                tabla.Rows.Add(idSucursal, p.id, p.orden, p.codigo_equis, p.cod_art, p.descripcion_codigo, p.categoria, p.genero,
+                    p.codigo_color, p.descripcion_color, p.talles, p.curva, p.ean_2025, ahora);
+            }
+
+            using var transaccion = conexion.BeginTransaction();
+            using (SqlCommand cmd = new SqlCommand("DELETE FROM productos_sucursal WHERE SucursalId = @suc", conexion, transaccion))
+            {
+                cmd.Parameters.AddWithValue("@suc", idSucursal);
+                cmd.ExecuteNonQuery();
+            }
+            using (var bulk = new SqlBulkCopy(conexion, SqlBulkCopyOptions.Default, transaccion))
+            {
+                bulk.DestinationTableName = "productos_sucursal";
+                foreach (DataColumn col in tabla.Columns)
+                {
+                    bulk.ColumnMappings.Add(col.ColumnName, col.ColumnName);
+                }
+                bulk.WriteToServer(tabla);
+            }
+            transaccion.Commit();
+
+            // Mapear los productos nuevos de la sucursal y corregir sus ventas pendientes
+            using (SqlCommand cmd = new SqlCommand("dbo.sp_unif_mapear_sucursal", conexion))
+            {
+                cmd.CommandType = CommandType.StoredProcedure;
+                cmd.CommandTimeout = 300;
+                cmd.Parameters.AddWithValue("@suc", idSucursal);
+                cmd.ExecuteNonQuery();
             }
         }
 
