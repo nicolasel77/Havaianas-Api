@@ -3,76 +3,94 @@
 ## Por qué había productos repetidos y ventas/stock que no cerraban
 
 1. **Cada sucursal manda sus ventas con el ID de producto de su propia base.** `POST /Ventas` guardaba ese ID tal
-   cual en `detalle_ventas`, sin traducirlo al producto del servidor. Si en la sucursal el producto tenía otro ID,
-   la venta quedaba asignada a otro producto o a uno inexistente.
+   cual en `detalle_ventas`, sin traducirlo al producto del servidor. Además, cada sucursal tiene sus propios
+   productos repetidos.
 2. **Ventas duplicadas.** Si una sucursal reenviaba una venta, la API actualizaba la cabecera pero volvía a
    insertar todas las líneas de `detalle_ventas`.
-3. **Altas sin control.** `POST /Productos` no revisaba si ya existía el EAN o la combinación Cod_Art + color + talle,
-   y armaba el ID nuevo con `MAX(Orden) + 1` en vez de `MAX(ID) + 1`.
+3. **Altas sin control.** `POST /Productos` no revisaba si el producto ya existía, y armaba el ID nuevo con
+   `MAX(Orden) + 1` en vez de `MAX(ID) + 1`.
 
-## Qué cambia
+## La solución
 
-- **El servidor es el dueño de productos y formas de pago.** Se crean y editan solo en el servidor (WebApp / API).
-  Las sucursales los descargan con `GET /Productos` y `GET /FormasPago`.
-- La API **rechaza duplicados** con `409 Conflict` y devuelve el producto que ya existe. Los criterios son:
-  - mismo EAN
-  - mismo Cod_Art + color + talle
-  - misma descripción + color + talle
-- **Equivalencias por sucursal.** `ProductosSucursal` y `FormasPagoSucursal` guardan qué ID de la sucursal
-  corresponde a cada ID del servidor, y `POST /Ventas` traduce con ellas. El ID original queda guardado en
-  `detalle_ventas.id_producto_sucursal` y `ventas.forma_pago_sucursal`.
-- **Reenvíos.** Si una venta llega de nuevo, su detalle se reemplaza en vez de duplicarse. Para eso cada venta
-  (sucursal + `id_venta_sucursal`) tiene que llegar completa en el mismo envío.
-- **Bajas lógicas.** Los productos duplicados no se borran: quedan con `Activo = 0` e `ID_Unificado` = el producto
-  que queda. `DELETE /Productos/{id}` también hace una baja lógica.
-- **Endpoints nuevos:**
-  - `PUT /Productos/{id}`
-  - `DELETE /Productos/{id}`
-  - `POST /Productos/Equivalencias/{suc}`
-  - `GET`, `POST` y `PUT /FormasPago`
-  - `POST /FormasPago/Equivalencias/{suc}`
+**La lista maestra (`productos.xlsx`) es la verdad.** El servidor y todas las sucursales quedan con esa lista, con los
+mismos IDs, y las ventas, traslados e ingresos pasan a esos productos.
 
-## Cómo se elige qué producto queda
+- **Productos del servidor.** Cada fila de la lista queda como un solo producto. Se conserva el ID del mejor producto
+  existente que le corresponde; si no hay ninguno, se crea con un ID nuevo. El orden de preferencia es:
+  1. descripción en MAYÚSCULAS y datos completos (talle, color y EAN)
+  2. datos completos
+  3. en MAYÚSCULAS
+  4. con EAN o Cod_Art; si empatan, el de menor ID
+- **Duplicados.** Los demás productos que corresponden a la misma fila se unifican en ese: sus ventas, ingresos,
+  traslados, ajustes y mapeos de proveedor pasan a ese producto, y el duplicado queda inactivo (no se borra).
+- **Fuera de la lista.** Los productos que no están en la lista se dan de baja (`Activo = 0`).
+- **Sucursales.** Cada producto de la sucursal, con sus repetidos, se vincula con el de la lista. Primero se traducen
+  sus ventas en el servidor. Después se convierte la base de la sucursal: sus movimientos pasan a los IDs del
+  servidor y su tabla de productos se reemplaza por la del servidor.
 
-Se toman como el mismo producto los que comparten alguno de estos datos (siempre con el mismo talle):
+### Cómo se reconoce un producto en la lista (`fn_buscar_maestro`)
 
-- EAN y color
-- Cod_Art y color, sin EANs distintos entre ellos
-- descripción y color, sin EANs ni Cod_Art distintos entre ellos
+Gana el primer criterio que encuentra coincidencia:
 
-De cada grupo queda uno, en este orden de prioridad:
+1. EAN
+2. Cod_Art + código de color + descripción de color + talle
+3. Cod_Art + código de color + talle, solo si en la lista hay una sola fila así
+4. descripción + descripción de color + talle
 
-1. descripción en **MAYÚSCULAS** y con todos los datos (talle, color y EAN)
-2. con todos los datos
-3. en MAYÚSCULAS
-4. con EAN, con Cod_Art, con Código Equis o, si empatan, el de menor ID
+En los criterios 2, 3 y 4 no se vincula si los dos tienen EAN y es distinto. Los vínculos por descripción, y los de
+EAN cuando no coincide el talle o el color, quedan marcados para revisar.
 
-Los grupos con datos contradictorios (dos EAN, dos Cod_Art o dos colores distintos) no se unifican solos: quedan
-listados para revisar a mano.
+Los talles escritos distinto (por ejemplo `39/40` contra `390`) se traducen con la tabla `TallesEquivalencia`.
 
-En las sucursales, varios productos repetidos se vinculan con el mismo producto del servidor (`ProductosSucursal`),
-así que sus ventas quedan juntas en el servidor.
+### Lo que ya se ve en la lista
+
+La lista tiene 2.909 filas y no repite ningún EAN, pero:
+
+- **Filas repetidas.** Hay 5 iguales: KIDS SLIM GLITTER II PERSIGO en talles 256, 278, 290 y 312, y TOP MARVEL
+  CLASSIC NAVY BLUE en 456. Se crea una sola de cada una: la que tiene EAN.
+- **Códigos de color repetidos con distinto color.** El 4146976 / 9321 es BEIGE / STRAW y también ROSA GLOW. El
+  4147955 / 4896 es GREEN OLIVE y también TROPICAL CORAL. Se tratan como productos distintos por la descripción
+  del color, pero conviene corregir el código en la lista.
+- **Hey Dude y accesorios.** Vienen sin Cod_Art (0), así que se reconocen por EAN o por descripción.
+
+## Cambios en la API (para que no vuelva a pasar)
+
+- **El servidor es el dueño de productos y formas de pago.** Las sucursales los descargan con `GET /Productos` y
+  `GET /FormasPago`.
+- **Altas y ediciones.** `POST` y `PUT /Productos` rechazan duplicados con `409` y devuelven el producto que ya
+  existe. `DELETE` hace una baja lógica.
+- **Ventas.** `POST /Ventas` traduce el producto y la forma de pago de las sucursales que todavía no se convirtieron,
+  y reemplaza el detalle de una venta reenviada en vez de duplicarlo.
 
 ## Pasos (en este orden)
 
-| # | Qué | Cambia datos |
-|---|-----|--------------|
-| 1 | Backup completo de `dbHavaianas_servidor`. | No |
-| 2 | Ejecutar `01_estructura.sql`. Si falta alguna tabla o columna esperada, el script lo avisa y no sigue. | Solo agrega columnas y tablas |
-| 3 | Publicar la nueva API y ejecutar `sp_stock.sql` (repo WebApp). **Tiene que ser después del paso 2**, porque la API nueva usa las columnas nuevas. | No |
-| 4 | Ejecutar `02_diagnostico.sql` y revisar los resultados. | No |
-| 5 | `03_sucursales.sql` para **cada** sucursal: cargar su catálogo, vincular, revisar, cargar las formas de pago y traducir sus ventas. | Ventas de esa sucursal (pasan a IDs del servidor) |
-| 6 | `04_unificar.sql`: backup, propuesta, revisión y aplicación. Opcional: borrar las líneas de venta repetidas. | Sí, en una transacción |
-| 7 | `05_restricciones.sql`: índices únicos que impiden volver a cargar duplicados. | Solo recorta espacios en talles |
-| 8 | En el programa de las sucursales: descargar productos y formas de pago del servidor, no crearlos localmente, y mandar el catálogo propio a `POST /Productos/Equivalencias/{suc}` mientras tenga IDs propios. | — |
+| # | Dónde | Qué |
+|---|-------|-----|
+| 1 | Servidor | Backup completo. |
+| 2 | Servidor | `01_estructura.sql`: agrega tablas, columnas y procedimientos. No cambia datos. |
+| 3 | Servidor | Publicar la nueva API y ejecutar `sp_stock.sql` (repo WebApp). Tiene que ser después del paso 2. |
+| 4 | Servidor | `02_diagnostico.sql`: solo lectura. |
+| 5 | Servidor | `03_catalogos_sucursales.sql` para **todas** las sucursales: copia la tabla de productos de cada una. |
+| 6 | Servidor | `04_productos_maestro.sql`: carga la lista maestra. Se genera con `herramientas/lista_maestra_a_sql.py`. |
+| 7 | Servidor | `05_aplicar_maestro.sql`: backup, `sp_maestro_preparar`, revisión, `sp_maestro_aplicar`. |
+| 8 | Servidor | `06_sucursales.sql` por cada sucursal: vincular, cargar formas de pago y traducir sus ventas. |
+| 9 | Sucursal | `08_convertir_sucursal.sql` en la base de cada sucursal, sin vender y con todo enviado. Al terminar, en el servidor: `EXEC sp_sucursal_convertida @suc = N`. |
+| 10 | Servidor | `07_restricciones.sql`: índices únicos para que no se puedan volver a cargar duplicados. |
+| 11 | Programa de sucursal | Descargar productos y formas de pago del servidor y no crearlos localmente. |
 
-El paso 5 tiene que hacerse **antes** del 6. Las ventas de una sucursal tienen IDs de la sucursal, y unificar sin
-traducirlas primero mezclaría productos.
+**Primero probar todo en una copia** (por ejemplo, el backup restaurado con otro nombre: cambiar el `USE` de cada
+script).
 
-## Supuestos a verificar
+## Supuestos a verificar en la prueba
 
-- Nombres de tablas y columnas: `Productos`, `detalle_ventas` (`id`, `id_venta`, `id_producto`, `id_sucursal`),
-  `ventas` (`forma_pago`, `id_sucursal`), `formas_pago` (`ID`, `Descripcion`). `01_estructura.sql` verifica la mayoría.
-- Tablas que referencian productos: el resultado 11 de `02_diagnostico.sql` lista las columnas que podrían faltar en
-  `sp_aplicar_unificacion`.
-- SQL Server 2016 SP1 o superior (usa `CREATE OR ALTER`).
+- **Nombres de tablas y columnas** (`01_estructura.sql` verifica la mayoría):
+  - `Productos`
+  - `detalle_ventas` (`id`, `id_venta`, `id_producto`, `id_sucursal`)
+  - `ventas` (`forma_pago`, `id_sucursal`)
+  - `formas_pago` (`ID`, `Descripcion`)
+- **Base de las sucursales:** se asume que tiene la misma estructura que la del servidor. `08_convertir_sucursal.sql`
+  lista las columnas de producto que no conoce.
+- **Tablas con clave por producto** (por ejemplo, una tabla de stock por sucursal y producto): si dos productos
+  repetidos de la sucursal van al mismo producto, la conversión puede fallar por clave duplicada. En ese caso se
+  deshace todo y hay que sumar esas filas antes.
+- **Versión de SQL Server:** 2016 SP1 o superior (usa `CREATE OR ALTER`).

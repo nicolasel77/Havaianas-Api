@@ -1725,14 +1725,16 @@ namespace Havaianas_Api.Datos
 
         /// <summary>
         /// Busca un producto activo que sea el mismo que <paramref name="producto"/>:
-        /// mismo EAN, o mismo Cod_Art + color + talle, o misma descripción + color + talle (sin Cod_Art distintos).
+        /// mismo EAN, o mismo Cod_Art + código y descripción de color + talle, o misma descripción + color + talle (sin Cod_Art distintos).
+        /// (la lista maestra tiene códigos de color repetidos con distinta descripción, por eso se compara también la descripción)
         /// </summary>
         private static productos? buscar_duplicado(productos producto, int excluirId, SqlConnection conexion, SqlTransaction transaccion)
         {
             using (SqlCommand cmd = new SqlCommand($"SELECT TOP 1 {columnas_producto} FROM productos WITH (UPDLOCK, HOLDLOCK) " +
                 $"WHERE Activo = 1 AND ID <> @excluir AND (" +
                 $" (@ean > 0 AND Ean_2025 = @ean)" +
-                $" OR (@cod_art > 0 AND Cod_Art = @cod_art AND ISNULL(Codigo_Color, 0) = @codigo_color AND {talle_normalizado} = @talle)" +
+                $" OR (@cod_art > 0 AND Cod_Art = @cod_art AND ISNULL(Codigo_Color, 0) = @codigo_color AND {talle_normalizado} = @talle" +
+                $"     AND UPPER(LTRIM(RTRIM(ISNULL(Descripcion_Color, '')))) = @descripcion_color)" +
                 $" OR (@descripcion <> '' AND UPPER(LTRIM(RTRIM(ISNULL(Descripcion_Codigo, '')))) = @descripcion" +
                 $"     AND UPPER(LTRIM(RTRIM(ISNULL(Descripcion_Color, '')))) = @descripcion_color AND {talle_normalizado} = @talle" +
                 $"     AND (@cod_art = 0 OR ISNULL(Cod_Art, 0) = 0 OR Cod_Art = @cod_art)))" +

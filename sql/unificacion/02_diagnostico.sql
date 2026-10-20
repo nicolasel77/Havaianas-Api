@@ -30,16 +30,15 @@ SELECT '1) Resumen' AS resultado,
        (SELECT COUNT(*) FROM (SELECT Ean FROM #prod WHERE Ean > 0 GROUP BY Ean HAVING COUNT(*) > 1) x) AS eans_repetidos,
        (SELECT COUNT(*) FROM (SELECT 1 a FROM #prod WHERE Cod_Art > 0 GROUP BY Cod_Art, Codigo_Color, Talle HAVING COUNT(*) > 1) x) AS codart_color_talle_repetidos;
 
--- 2) Duplicados por EAN (mismo EAN, color y talle) -> se unifican automáticamente
+-- 2) Duplicados por EAN (mismo EAN, color y talle)
 SELECT '2) Mismo EAN + color + talle' AS resultado, p.*
 FROM #prod p
 WHERE EXISTS (SELECT 1 FROM #prod o WHERE o.ID <> p.ID AND o.Ean = p.Ean AND p.Ean > 0
               AND o.Codigo_Color = p.Codigo_Color AND o.Talle = p.Talle)
 ORDER BY p.Ean, p.ID;
 
--- 3) Duplicados por Cod_Art + color + talle -> se unifican si no tienen EANs distintos
-SELECT '3) Mismo Cod_Art + color + talle' AS resultado, p.*,
-       CASE WHEN g.eans > 1 THEN 'NO (EANs distintos, revisar)' ELSE 'SI' END AS se_unifica
+-- 3) Duplicados por Cod_Art + color + talle
+SELECT '3) Mismo Cod_Art + color + talle' AS resultado, p.*, g.eans AS eans_distintos_en_el_grupo
 FROM #prod p
 INNER JOIN (SELECT Cod_Art, Codigo_Color, Talle, COUNT(*) AS cant, COUNT(DISTINCT NULLIF(Ean, 0)) AS eans
             FROM #prod WHERE Cod_Art > 0
@@ -83,7 +82,7 @@ GROUP BY dv.id_sucursal, dv.id_producto
 ORDER BY dv.id_sucursal, dv.id_producto;
 
 -- 8) Líneas de venta repetidas (la API anterior volvía a insertar el detalle cada vez que una
---    sucursal reenviaba una venta). Ver 04_unificar.sql, paso opcional de limpieza.
+--    sucursal reenviaba una venta). Ver 05_aplicar_maestro.sql, paso opcional de limpieza.
 SELECT '8) Líneas de venta repetidas' AS resultado, dv.id_sucursal,
        COUNT(*) AS grupos_repetidos, SUM(dv.veces - 1) AS lineas_de_mas, SUM((dv.veces - 1) * dv.cantidad) AS unidades_de_mas
 FROM (SELECT id_sucursal, id_venta, id_producto, cantidad, precio, COUNT(*) AS veces
@@ -118,7 +117,7 @@ SELECT '11) Columnas que referencian productos' AS resultado, t.name AS tabla, c
 FROM sys.columns c
 INNER JOIN sys.tables t ON t.object_id = c.object_id
 WHERE (c.name LIKE '%producto%' OR c.name LIKE '%prod%')
-  AND t.name NOT IN ('Productos', 'ProductosSucursalImport', 'ProductosUnificacion')
+  AND t.name NOT IN ('Productos', 'ProductosSucursalImport', 'ProductosUnificacion', 'ProductosMaestro', 'ProductosMaestroVinculo')
   AND c.name NOT IN ('id_producto_sucursal')
 ORDER BY cubierta, t.name, c.name;
 GO
