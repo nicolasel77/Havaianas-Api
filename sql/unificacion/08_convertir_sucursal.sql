@@ -10,6 +10,14 @@
     Hacerlo con la sucursal SIN VENDER y con todas sus ventas ya enviadas al servidor. Al terminar, en el
     servidor: EXEC dbo.sp_sucursal_convertida @suc = N (desde ahí la sucursal manda IDs del servidor).
 
+    IMPORTANTE:
+      * Frenar el envío automático de ventas de la sucursal antes de empezar, y ejecutar
+        sp_sucursal_convertida APENAS termina el paso 2. Mientras el servidor tenga las equivalencias de la
+        sucursal, una venta reenviada con IDs del servidor se traduce como si fueran IDs de la sucursal y
+        queda con el producto equivocado.
+      * El paso 2 se ejecuta UNA sola vez. Si ya existe Productos_antes_unificar, no hace nada (volver a
+        cambiar los IDs dejaría los productos mal).
+
     Ejecutar por partes, en orden.
 */
 USE [dbHavaianas_sucursal1]   -- <<< BASE DE LA SUCURSAL
@@ -57,6 +65,13 @@ GO
 ------------------------------------------------------------------------------------------
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+
+-- La sucursal ya se convirtió: sus movimientos ya tienen IDs del servidor
+IF OBJECT_ID('dbo.Productos_antes_unificar', 'U') IS NOT NULL
+BEGIN
+    RAISERROR(N'La sucursal ya está convertida (existe Productos_antes_unificar). No se cambió nada.', 16, 1);
+    RETURN;
+END
 
 DECLARE @refs TABLE (tabla sysname, columna sysname);
 INSERT INTO @refs VALUES
@@ -112,6 +127,21 @@ BEGIN
     RETURN;
 END
 
+-- Equivalencias que apuntan a un producto que no está entre los activos del servidor (por ejemplo, un
+-- vínculo MANUAL a un producto dado de baja): esos movimientos quedarían con un ID que no existe
+IF EXISTS (SELECT 1 FROM dbo.EquivalenciaServidor e
+           WHERE NOT EXISTS (SELECT 1 FROM dbo.ProductosServidor p WHERE p.ID = e.id_producto))
+BEGIN
+    SELECT 'Equivalencias a productos inactivos o inexistentes en el servidor: corregir el vínculo (06_sucursales.sql) y repetir el paso 1' AS resultado,
+           e.id_producto_sucursal, e.id_producto, p.*
+    FROM dbo.EquivalenciaServidor e
+    LEFT JOIN dbo.Productos p ON p.ID = e.id_producto_sucursal
+    WHERE NOT EXISTS (SELECT 1 FROM dbo.ProductosServidor ps WHERE ps.ID = e.id_producto)
+    ORDER BY e.id_producto_sucursal;
+    RAISERROR(N'Hay equivalencias a productos que no están activos en el servidor. No se cambió nada.', 16, 1);
+    RETURN;
+END
+
 BEGIN TRAN;
 
 -- Desactivar temporalmente las claves foráneas que apuntan a Productos / formas_pago (se vuelven a validar al final)
@@ -148,9 +178,9 @@ END
 CLOSE c2;
 DEALLOCATE c2;
 
--- 2) Productos: reemplazar por los del servidor (columnas en común; respeta IDENTITY)
-IF OBJECT_ID('dbo.Productos_antes_unificar', 'U') IS NULL
-    SELECT * INTO dbo.Productos_antes_unificar FROM dbo.Productos;
+-- 2) Productos: reemplazar por los del servidor (columnas en común; respeta IDENTITY).
+-- La copia también marca la sucursal como convertida (ver el control al principio del paso).
+SELECT * INTO dbo.Productos_antes_unificar FROM dbo.Productos;
 
 DECLARE @columnas nvarchar(max);
 SELECT @columnas = STUFF((

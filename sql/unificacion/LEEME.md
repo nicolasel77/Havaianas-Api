@@ -74,9 +74,18 @@ La lista tiene 2.909 filas y no repite ningún EAN, pero:
 | 6 | Servidor | `04_productos_maestro.sql`: carga la lista maestra. Se genera con `herramientas/lista_maestra_a_sql.py`. |
 | 7 | Servidor | `05_aplicar_maestro.sql`: backup, `sp_maestro_preparar`, revisión, `sp_maestro_aplicar`. |
 | 8 | Servidor | `06_sucursales.sql` por cada sucursal: vincular, cargar formas de pago y traducir sus ventas. |
-| 9 | Sucursal | `08_convertir_sucursal.sql` en la base de cada sucursal, sin vender y con todo enviado. Al terminar, en el servidor: `EXEC sp_sucursal_convertida @suc = N`. |
+| 9 | Sucursal | `08_convertir_sucursal.sql` en la base de cada sucursal, sin vender, con todo enviado y con el envío automático de ventas frenado. Apenas termina, en el servidor: `EXEC sp_sucursal_convertida @suc = N`. Recién ahí volver a activar el envío. |
 | 10 | Servidor | `07_restricciones.sql`: índices únicos para que no se puedan volver a cargar duplicados. |
 | 11 | Programa de sucursal | Descargar productos y formas de pago del servidor y no crearlos localmente. |
+
+**Cuidado con la conversión de cada sucursal (paso 9):**
+
+- Entre el final del `08` y `sp_sucursal_convertida`, el servidor todavía traduce los IDs de esa sucursal. Una venta
+  reenviada en ese rato (que ya viene con IDs del servidor) se guardaría con el producto equivocado. Por eso hay que
+  frenar el envío y ejecutar `sp_sucursal_convertida` enseguida.
+- El paso 2 del `08` se ejecuta una sola vez: si ya existe `Productos_antes_unificar`, no hace nada.
+- Si después hay que volver a ejecutar `sp_maestro_aplicar`, las sucursales convertidas ya no tienen catálogo cargado
+  y sus ventas ya usan IDs del servidor: ejecutarlo con `@sucursales_sin_catalogo_usan_ids_servidor = 1`.
 
 **Primero probar todo en una copia** (por ejemplo, el backup restaurado con otro nombre: cambiar el `USE` de cada
 script).
@@ -90,7 +99,10 @@ script).
   - `formas_pago` (`ID`, `Descripcion`)
 - **Base de las sucursales:** se asume que tiene la misma estructura que la del servidor. `08_convertir_sucursal.sql`
   lista las columnas de producto que no conoce.
-- **Tablas con clave por producto** (por ejemplo, una tabla de stock por sucursal y producto): si dos productos
-  repetidos de la sucursal van al mismo producto, la conversión puede fallar por clave duplicada. En ese caso se
-  deshace todo y hay que sumar esas filas antes.
+- **Qué manda cada sucursal al servidor:** solo ventas (confirmado). Los traslados y los ingresos se cargan en el
+  servidor con sus IDs, así que se unifican con `sp_aplicar_unificacion` y no hace falta traducirlos.
+- **Tablas con clave por producto** (por ejemplo, `precios` o una tabla de stock por sucursal y producto): si dos
+  productos repetidos van al mismo producto, la unificación del servidor (`sp_maestro_aplicar`) o la conversión de la
+  sucursal (`08`) puede fallar por clave duplicada. En ese caso se deshace todo y hay que sumar o borrar esas filas
+  antes.
 - **Versión de SQL Server:** 2016 SP1 o superior (usa `CREATE OR ALTER`).
