@@ -162,6 +162,72 @@ namespace Havaianas_Api.Datos
 
         #endregion
 
+        #region " Usuarios "
+        public usuarios? obtener_usuario(string usuario)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand(@"SELECT u.[Id], u.[Usuario], u.[Nombre], u.[PasswordHash], u.[IdSucursal], ISNULL(s.[Nombre], ''), u.[Activo]
+                FROM Usuarios u LEFT JOIN sucursales s ON s.[ID] = u.[IdSucursal]
+                WHERE u.[Usuario] = @usuario", conexion))
+            {
+                cmd.Parameters.AddWithValue("@usuario", usuario);
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    if (!reader.Read()) return null;
+                    return new usuarios
+                    {
+                        id = reader.GetInt32(0),
+                        usuario = reader.GetString(1),
+                        nombre = reader.GetString(2),
+                        password_hash = reader.GetString(3),
+                        id_sucursal = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                        sucursal = reader.GetString(5),
+                        activo = reader.GetBoolean(6)
+                    };
+                }
+            }
+        }
+
+        public void crear_usuario(string usuario, string nombre, string passwordHash, int? idSucursal)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand(@"INSERT INTO Usuarios ([Usuario], [Nombre], [PasswordHash], [IdSucursal])
+                VALUES (@usuario, @nombre, @passwordHash, @idSucursal)", conexion))
+            {
+                cmd.Parameters.AddWithValue("@usuario", usuario);
+                cmd.Parameters.AddWithValue("@nombre", nombre);
+                cmd.Parameters.AddWithValue("@passwordHash", passwordHash);
+                cmd.Parameters.AddWithValue("@idSucursal", ValorSql(idSucursal));
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void actualizar_password_usuario(int id, string passwordHash)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("UPDATE Usuarios SET [PasswordHash] = @passwordHash WHERE [Id] = @id", conexion))
+            {
+                cmd.Parameters.AddWithValue("@passwordHash", passwordHash);
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void registrar_login_usuario(int id)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("UPDATE Usuarios SET [UltimoLogin] = GETDATE() WHERE [Id] = @id", conexion))
+            {
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.ExecuteNonQuery();
+            }
+        }
+        #endregion
+
         #region " Ingresos "
         internal bool agregar_ingreso(IngresoMercaderia ingreso)
         {
