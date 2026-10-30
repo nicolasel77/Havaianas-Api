@@ -12,13 +12,10 @@ namespace Havaianas_Api.Controllers
     {
         private readonly sql_db sql = new sql_db();
 
-        // GET /Productos?todos=false
-        // Catálogo maestro de productos. Las sucursales lo descargan de acá: el servidor es el único
-        // que da de alta productos. todos = true incluye los inactivos (duplicados ya unificados).
         [HttpGet]
-        public ActionResult<IEnumerable<productos>> Get(bool todos = false)
+        public ActionResult<IEnumerable<productos>> Get()
         {
-            productos[] productos = sql.obtener_productos(todos);
+            productos[] productos = sql.obtener_productos();
             return Ok(productos);
         }
         [HttpGet("{nombre}")]
@@ -68,54 +65,42 @@ namespace Havaianas_Api.Controllers
         [HttpPost]
         public ActionResult<productos> Post([FromBody] productos nuevoProducto)
         {
-            int nid = sql.agregar_producto(nuevoProducto, out productos? duplicado);
-            if (duplicado != null)
-            {
-                return Conflict(new { message = $"Ya existe el producto {duplicado.id}: {duplicado.descripcion_codigo} {duplicado.descripcion_color} {duplicado.talles}", producto = duplicado });
-            }
+            int nid = sql.agregar_producto(nuevoProducto);
             return Ok(nid);
         }
 
-        [HttpPut("{id:int}")]
-        public ActionResult Put(int id, [FromBody] productos producto)
+        // Recibe todos los productos de la base local de una sucursal (para unificar IDs)
+        [HttpPost("Sucursal/{idSucursal}")]
+        [RequestSizeLimit(50_000_000)]
+        public ActionResult PostProductosSucursal(int idSucursal, [FromBody] List<productos_sucursal> productos)
         {
-            producto.id = id;
-            bool existe = sql.editar_producto(producto, out productos? duplicado);
-            if (duplicado != null)
-            {
-                return Conflict(new { message = $"Ya existe el producto {duplicado.id}: {duplicado.descripcion_codigo} {duplicado.descripcion_color} {duplicado.talles}", producto = duplicado });
-            }
-            if (!existe)
-            {
-                return NotFound();
-            }
-            return Ok(new { message = "Producto editado correctamente" });
-        }
-
-        // Baja lógica (Activo = 0): se conservan las ventas, ingresos y traslados del producto
-        [HttpDelete("{id:int}")]
-        public ActionResult Delete(int id)
-        {
-            if (!sql.desactivar_producto(id))
-            {
-                return NotFound();
-            }
-            return Ok(new { message = "Producto dado de baja" });
-        }
-
-        // POST /Productos/Equivalencias/{suc}
-        // La sucursal manda su listado de productos (mismo formato que GET /Productos) y el servidor
-        // los vincula con los suyos (por EAN, Cod_Art + color + talle o descripción + color + talle).
-        // Las ventas que manda la sucursal se traducen con ese vínculo. Devuelve los que no se pudieron vincular.
-        [HttpPost("Equivalencias/{suc:int}")]
-        public ActionResult<IEnumerable<productos>> PostEquivalencias(int suc, [FromBody] List<productos> productosSucursal)
-        {
-            if (productosSucursal == null || productosSucursal.Count == 0)
+            if (idSucursal <= 0 || productos == null || productos.Count == 0)
             {
                 return BadRequest("No se recibieron productos.");
             }
-            List<productos> sinVincular = sql.equivalencias_sucursal(suc, productosSucursal);
-            return Ok(new { recibidos = productosSucursal.Count, sin_vincular = sinVincular });
+            try
+            {
+                sql.guardar_productos_sucursal(idSucursal, productos);
+                return Ok(productos.Count);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error al guardar productos: {ex.Message}");
+            }
+        }
+
+        // Catalogo completo del servidor (lo descargan las sucursales)
+        [HttpGet("Catalogo")]
+        public ActionResult<IEnumerable<productos_sucursal>> GetCatalogo()
+        {
+            return Ok(sql.obtener_catalogo());
+        }
+
+        // ID local -> ID central de los productos de una sucursal
+        [HttpGet("Mapeo/{idSucursal}")]
+        public ActionResult<IEnumerable<mapeo_id>> GetMapeo(int idSucursal)
+        {
+            return Ok(sql.obtener_mapeo(idSucursal));
         }
 
         // Obtener el proximo orden

@@ -12,6 +12,8 @@
         public string descripcion_color { get; set; }
         public string talles { get; set; }
         public long ean_2025 { get; set; }
+        public string? genero { get; set; }
+        public string? curva { get; set; }
 
     }
 }
