@@ -1,4 +1,5 @@
 ﻿using Havaianas_Api.Datos;
+using Havaianas_Api.Servicios;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,6 +10,12 @@ namespace Havaianas_Api.Controllers
     public class VentasController : ControllerBase
     {
         sql_db sql = new sql_db();
+        private readonly AvisosPush avisos;
+
+        public VentasController(AvisosPush avisos)
+        {
+            this.avisos = avisos;
+        }
 
         [HttpGet]
         // GET: /Ventas?suc=1&fechaInicio=2024-01-01&fechaFin=2024-01-31&agDia=true&agProd=false&agSuc=false
@@ -52,7 +59,12 @@ namespace Havaianas_Api.Controllers
             }
             try
             {
-                sql.insertar_ventas(ventas);
+                var vendidosHoy = sql.insertar_ventas(ventas);
+                // El aviso de "vendió el último" va aparte para no demorar la respuesta a la sucursal
+                if (vendidosHoy.Count > 0)
+                {
+                    _ = Task.Run(() => avisos.AvisarAgotados(vendidosHoy));
+                }
                 return Ok("Ventas insertadas correctamente.");
             }
             catch (Exception ex)

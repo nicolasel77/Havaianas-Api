@@ -89,11 +89,18 @@ namespace Havaianas_Api.Controllers
             }
         }
 
-        // Catalogo completo del servidor (lo descargan las sucursales)
+        // Productos activos del servidor (lo descargan las sucursales)
         [HttpGet("Catalogo")]
         public ActionResult<IEnumerable<productos_sucursal>> GetCatalogo()
         {
             return Ok(sql.obtener_catalogo());
+        }
+
+        // Productos unificados: ID viejo -> ID del producto que quedo
+        [HttpGet("Unificados")]
+        public ActionResult<IEnumerable<mapeo_id>> GetUnificados()
+        {
+            return Ok(sql.obtener_unificados());
         }
 
         // ID local -> ID central de los productos de una sucursal
