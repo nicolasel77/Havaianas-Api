@@ -1034,11 +1034,13 @@ namespace Havaianas_Api.Datos
                     // Si todavia no esta mapeado queda con el ID local e id_producto_sucursal NULL (lo corrige sp_unif_mapear_sucursal).
                     using (SqlCommand cmd = new SqlCommand(@"INSERT INTO detalle_ventas (id_venta, id_producto, cantidad, precio, descuento, subtotal, id_sucursal, id_producto_sucursal)
                         SELECT @id_venta,
-                               CASE WHEN @ids_centrales = 1 THEN @id_producto ELSE ISNULL(m.ID_Central, @id_producto) END,
+                               CASE WHEN @ids_centrales = 1 THEN ISNULL(u.ID_Unificado, @id_producto) ELSE ISNULL(m.ID_Central, @id_producto) END,
                                @cantidad, @precio, @descuento, @subtotal, @id_sucursal,
                                CASE WHEN @ids_centrales = 1 OR m.ID_Central IS NOT NULL THEN @id_producto END
                         FROM (SELECT 1 AS x) d
-                        LEFT JOIN mapeo_productos m ON m.SucursalId = @id_sucursal AND m.ID_Original = @id_producto", conexion))
+                        LEFT JOIN mapeo_productos m ON m.SucursalId = @id_sucursal AND m.ID_Original = @id_producto
+                        -- Producto unificado en el servidor que la sucursal todavia no actualizo: va al producto que quedo
+                        LEFT JOIN productos u ON @ids_centrales = 1 AND u.ID = @id_producto AND u.Activo = 0 AND u.ID_Unificado IS NOT NULL", conexion))
                     {
                         cmd.Parameters.AddWithValue("@id_venta", (object)venta.id_venta_sucursal ?? System.DBNull.Value);
                         cmd.Parameters.AddWithValue("@id_producto", venta.id_producto);
@@ -1677,7 +1679,10 @@ namespace Havaianas_Api.Datos
                 BEGIN TRAN;
                 EXEC sp_getapplock @Resource = 'productos_nuevo_id', @LockMode = 'Exclusive', @LockOwner = 'Transaction';
 
-                DECLARE @id int = (SELECT TOP 1 ID FROM productos WHERE @ean_2025 <> 0 AND Ean_2025 = @ean_2025);
+                -- Si el EAN es de un producto unificado, se devuelve el producto que quedo
+                DECLARE @id int = (SELECT TOP 1 CASE WHEN Activo = 1 THEN ID ELSE ID_Unificado END FROM productos
+                                   WHERE @ean_2025 <> 0 AND Ean_2025 = @ean_2025 AND (Activo = 1 OR ID_Unificado IS NOT NULL)
+                                   ORDER BY Activo DESC, ID);
                 IF @id IS NULL
                 BEGIN
                     SET @id = dbo.fn_unif_max_id() + 1;
@@ -1703,14 +1708,14 @@ namespace Havaianas_Api.Datos
             }
         }
 
-        // Catalogo completo del servidor (lo descargan las sucursales)
+        // Productos activos del servidor (lo descargan las sucursales). Los unificados no van: ver obtener_unificados.
         internal List<productos_sucursal> obtener_catalogo()
         {
             var lista = new List<productos_sucursal>();
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
             using (SqlCommand cmd = new SqlCommand(@"SELECT ID, ISNULL(Orden, 0), ISNULL(Codigo_Equis, 0), ISNULL(Cod_Art, 0), Descripcion_Codigo, Categoria, Genero,
-                    ISNULL(Codigo_Color, 0), Descripcion_Color, Talles, Curva, ISNULL(Ean_2025, 0) FROM productos ORDER BY ID", conexion))
+                    ISNULL(Codigo_Color, 0), Descripcion_Color, Talles, Curva, ISNULL(Ean_2025, 0) FROM productos WHERE ISNULL(Activo, 1) = 1 ORDER BY ID", conexion))
             using (SqlDataReader reader = cmd.ExecuteReader())
             {
                 while (reader.Read())
@@ -1730,6 +1735,23 @@ namespace Havaianas_Api.Datos
                         curva = reader.IsDBNull(10) ? null : reader.GetString(10),
                         ean_2025 = reader.GetInt64(11)
                     });
+                }
+            }
+            return lista;
+        }
+
+        // Producto unificado -> producto que quedo (las sucursales pasan sus ventas y precios y borran el viejo)
+        internal List<mapeo_id> obtener_unificados()
+        {
+            var lista = new List<mapeo_id>();
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("SELECT ID, ID_Unificado FROM productos WHERE Activo = 0 AND ID_Unificado IS NOT NULL", conexion))
+            using (SqlDataReader reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    lista.Add(new mapeo_id { id_original = reader.GetInt32(0), id_central = reader.GetInt32(1) });
                 }
             }
             return lista;
