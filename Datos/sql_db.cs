@@ -943,8 +943,10 @@ namespace Havaianas_Api.Datos
                 }
             }
         }
-        internal void insertar_ventas(List<ventas> ventas)
+        /// <returns>Productos (ID central) y sucursales que se vendieron hoy en este envío, para avisar si quedaron en 0</returns>
+        internal HashSet<(int sucursal, int producto)> insertar_ventas(List<ventas> ventas)
         {
+            var vendidosHoy = new HashSet<(int sucursal, int producto)>();
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
             foreach (var venta in ventas)
@@ -1033,6 +1035,7 @@ namespace Havaianas_Api.Datos
                     // Si la sucursal manda IDs locales se traducen al ID central con mapeo_productos.
                     // Si todavia no esta mapeado queda con el ID local e id_producto_sucursal NULL (lo corrige sp_unif_mapear_sucursal).
                     using (SqlCommand cmd = new SqlCommand(@"INSERT INTO detalle_ventas (id_venta, id_producto, cantidad, precio, descuento, subtotal, id_sucursal, id_producto_sucursal)
+                        OUTPUT inserted.id_producto
                         SELECT @id_venta,
                                CASE WHEN @ids_centrales = 1 THEN ISNULL(u.ID_Unificado, @id_producto) ELSE ISNULL(m.ID_Central, @id_producto) END,
                                @cantidad, @precio, @descuento, @subtotal, @id_sucursal,
@@ -1051,10 +1054,17 @@ namespace Havaianas_Api.Datos
                         cmd.Parameters.AddWithValue("@descuento", venta.descuento);
                         cmd.Parameters.AddWithValue("@subtotal", venta.subTotal);
 
-                        cmd.ExecuteNonQuery();
+                        object idCentral = cmd.ExecuteScalar();
+                        // Solo las ventas del día: un reenvío de ventas viejas no tiene que disparar avisos
+                        if (idCentral != null && idCentral != DBNull.Value && venta.cantidad > 0
+                            && venta.id_sucursal > 0 && venta.fecha.Date == DateTime.Today)
+                        {
+                            vendidosHoy.Add((venta.id_sucursal, Convert.ToInt32(idCentral)));
+                        }
                     }
                 }
             }
+            return vendidosHoy;
         }
 
         internal ventas ultima_venta(int suc)
@@ -1935,6 +1945,102 @@ namespace Havaianas_Api.Datos
         }
 
 
+        #endregion
+            #region " Notificaciones push "
+        /// <summary>
+        /// Stock actual de un producto en una sucursal. sp_stock no devuelve fila cuando el stock es 0.
+        /// </summary>
+        internal decimal stock_producto(int suc, int producto)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlCommand cmd = new SqlCommand("sp_stock", conexion);
+            cmd.CommandType = CommandType.StoredProcedure;
+            cmd.Parameters.AddWithValue("@suc", suc);
+            cmd.Parameters.AddWithValue("@fecha", DateTime.Now);
+            cmd.Parameters.AddWithValue("@producto", producto);
+            decimal total = 0m;
+            using SqlDataReader reader = cmd.ExecuteReader();
+            int ordCantidad = reader.GetOrdinal("cantidadstock");
+            int ordSucursal = reader.GetOrdinal("sucursal");
+            while (reader.Read())
+            {
+                if (!reader.IsDBNull(ordSucursal) && Convert.ToInt32(reader.GetValue(ordSucursal)) != suc) continue;
+                total += reader.IsDBNull(ordCantidad) ? 0m : Convert.ToDecimal(reader.GetValue(ordCantidad));
+            }
+            return total;
+        }
+
+        /// <summary>
+        /// Sucursal, producto, talle y color tal como se ven en el listado de ventas
+        /// </summary>
+        internal (string sucursal, string producto, string talle, string color)? datos_venta_producto(int suc, int producto)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlCommand cmd = new SqlCommand("SELECT TOP 1 ISNULL(nombre_sucursal, ''), ISNULL(nombre_producto, ''), ISNULL(desc_talle, ''), ISNULL(desc_color, '') " +
+                "FROM vw_ventas WHERE ID_Sucursal = @suc AND ID_Producto = @producto ORDER BY Hora DESC", conexion);
+            cmd.Parameters.AddWithValue("@suc", suc);
+            cmd.Parameters.AddWithValue("@producto", producto);
+            using SqlDataReader reader = cmd.ExecuteReader();
+            if (!reader.Read()) return null;
+            return (reader.GetString(0).Trim(), reader.GetString(1).Trim(), reader.GetString(2).Trim(), reader.GetString(3).Trim());
+        }
+
+        /// <summary>
+        /// Anota que hoy se avisó el agotado de ese producto en esa sucursal. Devuelve false si ya se había avisado.
+        /// </summary>
+        internal bool registrar_aviso_agotado(int suc, int producto)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlCommand cmd = new SqlCommand(@"INSERT INTO push_avisos_agotado (id_sucursal, id_producto, fecha)
+                SELECT @suc, @producto, CAST(GETDATE() AS date)
+                WHERE NOT EXISTS (SELECT 1 FROM push_avisos_agotado WHERE id_sucursal = @suc AND id_producto = @producto AND fecha = CAST(GETDATE() AS date))", conexion);
+            cmd.Parameters.AddWithValue("@suc", suc);
+            cmd.Parameters.AddWithValue("@producto", producto);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+
+        internal void guardar_suscripcion_push(SuscripcionPush suscripcion)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlCommand cmd = new SqlCommand(@"UPDATE push_suscripciones SET p256dh = @p256dh, auth = @auth, fecha_alta = GETDATE() WHERE endpoint = @endpoint;
+                IF @@ROWCOUNT = 0
+                    INSERT INTO push_suscripciones (endpoint, p256dh, auth) VALUES (@endpoint, @p256dh, @auth);", conexion);
+            cmd.Parameters.AddWithValue("@endpoint", suscripcion.endpoint);
+            cmd.Parameters.AddWithValue("@p256dh", suscripcion.keys.p256dh);
+            cmd.Parameters.AddWithValue("@auth", suscripcion.keys.auth);
+            cmd.ExecuteNonQuery();
+        }
+
+        internal void borrar_suscripcion_push(string endpoint)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlCommand cmd = new SqlCommand("DELETE FROM push_suscripciones WHERE endpoint = @endpoint", conexion);
+            cmd.Parameters.AddWithValue("@endpoint", endpoint);
+            cmd.ExecuteNonQuery();
+        }
+
+        internal List<SuscripcionPush> obtener_suscripciones_push()
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using SqlCommand cmd = new SqlCommand("SELECT endpoint, p256dh, auth FROM push_suscripciones", conexion);
+            using SqlDataReader reader = cmd.ExecuteReader();
+            var lista = new List<SuscripcionPush>();
+            while (reader.Read())
+            {
+                lista.Add(new SuscripcionPush
+                {
+                    endpoint = reader.GetString(0),
+                    keys = new SuscripcionPush.Claves { p256dh = reader.GetString(1), auth = reader.GetString(2) }
+                });
+            }
+            return lista;
+        }
         #endregion
     }
 }

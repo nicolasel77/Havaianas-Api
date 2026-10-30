@@ -1,3 +1,12 @@
+﻿// Genera las claves VAPID para las notificaciones push: dotnet "Havaianas Api.dll" generar-claves-push
+if (args.Length > 0 && args[0] == "generar-claves-push")
+{
+    var claves = WebPush.VapidHelper.GenerateVapidKeys();
+    Console.WriteLine($"Push__ClavePublica={claves.PublicKey}");
+    Console.WriteLine($"Push__ClavePrivada={claves.PrivateKey}");
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Configuración de Kestrel con puertos fijos
@@ -25,6 +34,7 @@ builder.Services.AddCors(options =>
 // Add services to the container.
 
 builder.Services.AddControllers();
+builder.Services.AddSingleton<Havaianas_Api.Servicios.AvisosPush>();
 
 // Swagger / OpenAPI (Swashbuckle)
 builder.Services.AddEndpointsApiExplorer();
