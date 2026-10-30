@@ -19,7 +19,8 @@ namespace Havaianas_Api.Controllers
         // - agDia: Agregar agrupación por día (opcional, por defecto false)
         // - agProd: Agregar agrupación por producto (opcional, por defecto false)
         // - agSuc: Agregar agrupación por sucursal (opcional, por defecto false)
-        public ActionResult<IEnumerable<Modelos.ventas>> Get(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null, bool agDia = false, bool agProd = false, bool agTalle = false, bool agColor = false, bool agSuc = false)
+        public ActionResult<IEnumerable<Modelos.ventas>> Get(int suc = 0, DateTime? fechaInicio = null, DateTime? fechaFin = null, bool agDia = false, bool agProd = false
+            , bool agTalle = false, bool agColor = false, bool agSuc = false)
         {
             return Ok(sql.ventas(suc, fechaInicio, fechaFin, agDia, agProd, agTalle, agColor, agSuc));
         }

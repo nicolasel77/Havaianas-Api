@@ -639,7 +639,8 @@ namespace Havaianas_Api.Datos
                 cmd.Parameters.AddWithValue("@producto", producto);
                 cmd.Parameters.AddWithValue("@codart", codart);
                 cmd.Parameters.AddWithValue("@talle", talle ?? (object)DBNull.Value);
-                cmd.Parameters.AddWithValue("@color", color);
+                cmd.Parameters.AddWithValue("@color", color ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@ver_ceros", todos);
                 using (SqlDataReader reader = cmd.ExecuteReader())
                 {
                     List<stock> stockList = new List<stock>();
@@ -921,7 +922,7 @@ namespace Havaianas_Api.Datos
             {
                 filtro += $" AND Fecha <= '{fechaFin.Value:yyyy-MM-dd}'";
             }
-            string comando = $"SELECT forma_pago, desc_forma_pago, SUM(subtotal) FROM vw_ventas {filtro} GROUP BY forma_pago, desc_forma_pago ORDER BY SUM(subtotal) DESC";
+            string comando = $"SELECT forma_pago, ISNULL(desc_forma_pago, '') desc_forma_pago, ISNULL(SUM(subtotal), 0) FROM vw_ventas {filtro} GROUP BY forma_pago, desc_forma_pago ORDER BY SUM(subtotal) DESC";
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
             using (SqlCommand cmd = new SqlCommand(comando, conexion))
