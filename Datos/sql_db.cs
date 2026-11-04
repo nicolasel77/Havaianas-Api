@@ -912,17 +912,39 @@ namespace Havaianas_Api.Datos
             string filtro = " WHERE 1=1";
             if (suc > 0)
             {
-                filtro += $" AND ID_Sucursal = {suc}";
+                filtro += $" AND v.ID_Sucursal = {suc}";
             }
             if (fechaInicio != null)
             {
-                filtro += $" AND Fecha >= '{fechaInicio.Value:yyyy-MM-dd}'";
+                filtro += $" AND v.Fecha >= '{fechaInicio.Value:yyyy-MM-dd}'";
             }
             if (fechaFin != null)
             {
-                filtro += $" AND Fecha <= '{fechaFin.Value:yyyy-MM-dd}'";
+                filtro += $" AND v.Fecha <= '{fechaFin.Value:yyyy-MM-dd}'";
             }
-            string comando = $"SELECT forma_pago, ISNULL(desc_forma_pago, '') desc_forma_pago, ISNULL(SUM(subtotal), 0) FROM vw_ventas {filtro} GROUP BY forma_pago, desc_forma_pago ORDER BY SUM(subtotal) DESC";
+            // Pago combinado: el importe de cada línea se reparte entre las formas de pago de la venta
+            // en proporción a lo que se pagó con cada una. Sin ventas_pagos, todo va a ventas.forma_pago.
+            string comando = $@"
+                IF OBJECT_ID('dbo.ventas_pagos') IS NULL
+                    SELECT v.forma_pago, ISNULL(v.desc_forma_pago, '') desc_forma_pago, CAST(ISNULL(SUM(v.subtotal), 0) AS decimal(18, 2))
+                    FROM vw_ventas v {filtro} GROUP BY v.forma_pago, v.desc_forma_pago ORDER BY SUM(v.subtotal) DESC
+                ELSE
+                    SELECT x.forma_pago, ISNULL(x.descripcion, '') desc_forma_pago, CAST(ISNULL(SUM(x.importe), 0) AS decimal(18, 2))
+                    FROM (
+                        SELECT v.forma_pago, v.desc_forma_pago descripcion, CAST(v.subtotal AS decimal(18, 2)) importe
+                        FROM vw_ventas v {filtro}
+                          AND NOT EXISTS (SELECT 1 FROM ventas_pagos p WHERE p.id_sucursal = v.ID_Sucursal AND p.id_venta_sucursal = v.id_venta_sucursal)
+                        UNION ALL
+                        SELECT p.forma_pago, f.descripcion, CAST(v.subtotal * p.importe / t.total AS decimal(18, 2))
+                        FROM vw_ventas v
+                        JOIN ventas_pagos p ON p.id_sucursal = v.ID_Sucursal AND p.id_venta_sucursal = v.id_venta_sucursal
+                        JOIN (SELECT id_sucursal, id_venta_sucursal, SUM(importe) total FROM ventas_pagos
+                              GROUP BY id_sucursal, id_venta_sucursal HAVING SUM(importe) <> 0) t
+                          ON t.id_sucursal = p.id_sucursal AND t.id_venta_sucursal = p.id_venta_sucursal
+                        LEFT JOIN formas_pago f ON f.idTipo = p.forma_pago
+                        {filtro}
+                    ) x
+                    GROUP BY x.forma_pago, x.descripcion ORDER BY SUM(x.importe) DESC";
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
             using (SqlCommand cmd = new SqlCommand(comando, conexion))
@@ -950,6 +972,9 @@ namespace Havaianas_Api.Datos
             var vendidosHoy = new HashSet<(int sucursal, int producto)>();
             using var conexion = new SqlConnection(connectionString);
             conexion.Open();
+            // Pago combinado: cada venta viene en varias líneas con la misma lista de pagos, se guarda una vez
+            var pagosGuardados = new HashSet<(int sucursal, int venta)>();
+            bool hayTablaPagos = ventas.Any(v => v.pagos != null && v.pagos.Count > 0) && AsegurarTablaPagos(conexion);
             foreach (var venta in ventas)
             {
                 // Forma de pago: si la sucursal manda IDs locales se traduce a la lista unica con mapeo_formas_pago.
@@ -1032,6 +1057,11 @@ namespace Havaianas_Api.Datos
                         }
                     }
                     
+                    if (hayTablaPagos && venta.pagos != null && pagosGuardados.Add((venta.id_sucursal, venta.id_venta_sucursal)))
+                    {
+                        guardar_pagos(conexion, venta);
+                    }
+
                     // insertar el detalle_ventas
                     // Si la sucursal manda IDs locales se traducen al ID central con mapeo_productos.
                     // Si todavia no esta mapeado queda con el ID local e id_producto_sucursal NULL (lo corrige sp_unif_mapear_sucursal).
@@ -1066,6 +1096,67 @@ namespace Havaianas_Api.Datos
                 }
             }
             return vendidosHoy;
+        }
+
+        /// <summary>
+        /// Crea ventas_pagos si no existe (ver Sql/ventas_pagos.sql). Devuelve false si no existe y no se pudo crear:
+        /// en ese caso las ventas se guardan igual, solo con la forma de pago principal.
+        /// </summary>
+        private static bool AsegurarTablaPagos(SqlConnection conexion)
+        {
+            try
+            {
+                using SqlCommand cmd = new SqlCommand(@"
+                    IF OBJECT_ID('dbo.ventas_pagos') IS NULL
+                    BEGIN
+                        CREATE TABLE dbo.ventas_pagos (
+                            id int IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                            id_sucursal int NOT NULL,
+                            id_venta_sucursal int NOT NULL,
+                            forma_pago int NOT NULL,
+                            forma_pago_sucursal int NULL,
+                            importe money NOT NULL);
+                        CREATE INDEX IX_ventas_pagos_venta ON dbo.ventas_pagos (id_sucursal, id_venta_sucursal);
+                    END", conexion);
+                cmd.ExecuteNonQuery();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("No se pudo crear ventas_pagos: " + ex.Message);
+                return false;
+            }
+        }
+
+        // Reemplaza las partes del pago combinado de una venta (si la sucursal la reenvía queda la última versión)
+        private static void guardar_pagos(SqlConnection conexion, ventas venta)
+        {
+            using (SqlCommand borrar = new SqlCommand("DELETE FROM ventas_pagos WHERE id_sucursal = @suc AND id_venta_sucursal = @venta", conexion))
+            {
+                borrar.Parameters.AddWithValue("@suc", venta.id_sucursal);
+                borrar.Parameters.AddWithValue("@venta", venta.id_venta_sucursal);
+                borrar.ExecuteNonQuery();
+            }
+            if (venta.pagos == null) return;
+
+            foreach (var pago in venta.pagos)
+            {
+                // Misma traducción que ventas.forma_pago: IDs locales -> mapeo_formas_pago (si no hay mapeo queda el local)
+                using SqlCommand cmd = new SqlCommand(@"
+                    INSERT INTO ventas_pagos (id_sucursal, id_venta_sucursal, forma_pago, forma_pago_sucursal, importe)
+                    SELECT @suc, @venta,
+                           CASE WHEN @ids_centrales = 1 THEN @fp ELSE ISNULL(m.ID_Central, @fp) END,
+                           CASE WHEN @ids_centrales = 1 OR m.ID_Central IS NOT NULL THEN @fp END,
+                           @importe
+                    FROM (SELECT 1 AS x) d
+                    LEFT JOIN mapeo_formas_pago m ON @ids_centrales = 0 AND m.SucursalId = @suc AND m.ID_Original = @fp", conexion);
+                cmd.Parameters.AddWithValue("@suc", venta.id_sucursal);
+                cmd.Parameters.AddWithValue("@venta", venta.id_venta_sucursal);
+                cmd.Parameters.AddWithValue("@ids_centrales", venta.ids_centrales);
+                cmd.Parameters.AddWithValue("@fp", pago.forma_pago);
+                cmd.Parameters.AddWithValue("@importe", pago.importe);
+                cmd.ExecuteNonQuery();
+            }
         }
 
         internal ventas ultima_venta(int suc)
