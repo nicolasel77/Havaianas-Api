@@ -33,6 +33,9 @@ namespace Havaianas_Api.Modelos
         public int id_venta_sucursal { get; set; }
         public string? desc_talle { get; set; } = string.Empty;
         public string? desc_color { get; set; } = string.Empty;
+        // Código de artículo y de color del producto (de la tabla productos)
+        public int cod_art { get; set; }
+        public string? cod_color { get; set; } = string.Empty;
         // true: id_producto y forma_pago ya son IDs del servidor (sucursal con catalogo central). false: IDs locales, se traducen con mapeo_productos / mapeo_formas_pago
         public bool ids_centrales { get; set; } = false;
         // Pago combinado: lo que se pagó con cada forma de pago. Vacío o null = se pagó todo con forma_pago.
