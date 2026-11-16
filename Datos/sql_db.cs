@@ -778,19 +778,22 @@ namespace Havaianas_Api.Datos
                 groupBy = (agDia || agProd || agTalle || agColor) ? groupBy + ", ID_Sucursal, nombre_sucursal" : " ID_Sucursal, nombre_sucursal";
             }
 
-            // vw_ventas con el código de artículo y de color del producto (para agrupar como en la lista de Havaianas)
-            const string vistaVentas = "(SELECT v.*, ISNULL(p.Cod_Art, 0) AS cod_art, ISNULL(CAST(p.Codigo_Color AS varchar(20)), '') AS cod_color" +
-                " FROM vw_ventas v LEFT JOIN productos p ON p.ID = v.ID_Producto) vw_ventas";
+            // Código de artículo y de color del producto (para agrupar como en la lista de Havaianas).
+            // Se traen de productos con nombres propios (prod_cod_art / prod_cod_color) para que no choquen
+            // con columnas que la vista vw_ventas tenga o deje de tener.
+            const string vistaVentas = "vw_ventas OUTER APPLY (SELECT TOP 1 ISNULL(p.Cod_Art, 0) AS prod_cod_art" +
+                ", ISNULL(CAST(p.Codigo_Color AS varchar(20)), '') AS prod_cod_color" +
+                " FROM productos p WHERE p.ID = vw_ventas.ID_Producto) prod";
 
             // Al agrupar por producto también se agrupa por su código de artículo, y al agrupar por color por su código de color
             string groupBySql = groupBy;
             if (agProd)
             {
-                groupBySql = groupBySql.Replace("nombre_producto", "cod_art, nombre_producto");
+                groupBySql = groupBySql.Replace("nombre_producto", "prod_cod_art, nombre_producto");
             }
             if (agColor)
             {
-                groupBySql = groupBySql.Replace("desc_color", "cod_color, desc_color");
+                groupBySql = groupBySql.Replace("desc_color", "prod_cod_color, desc_color");
             }
 
             string comando = $"SELECT [ID], ISNULL([ID_Sucursal], 0), nombre_sucursal, ISNULL([ID_Producto], 0)" +
@@ -800,7 +803,7 @@ namespace Havaianas_Api.Datos
                 ", cast( (cantidad*precio) as float) As subtotal,CAST(ISNULL([Descuento], 0) AS FLOAT)" +
                 ", ISNULL([Observaciones], ''), ISNULL([Estado], 0), ISNULL([CAE], '')" +
                 ", ISNULL([Hora], GETDATE()), ISNULL([desc_talle], ''), ISNULL([desc_color], '')" +
-                ", cod_art, cod_color FROM " + vistaVentas + filtro + " ORDER BY Hora";
+                ", prod_cod_art, prod_cod_color FROM " + vistaVentas + filtro + " ORDER BY Hora";
 
             if (groupBy != "")
             {
@@ -842,8 +845,8 @@ namespace Havaianas_Api.Datos
                                 hora = reader.IsDBNull(17) ? DateTime.MinValue : reader.GetDateTime(17),
                                 desc_talle = reader.IsDBNull(18) ? "" : reader.GetString(18),
                                 desc_color = reader.IsDBNull(19) ? "" : reader.GetString(19),
-                                cod_art = reader.IsDBNull(20) ? 0 : Convert.ToInt32(reader.GetValue(20)),
-                                cod_color = reader.IsDBNull(21) ? "" : reader.GetString(21)
+                                cod_art = reader.IsDBNull(reader.GetOrdinal("prod_cod_art")) ? 0 : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("prod_cod_art"))),
+                                cod_color = reader.IsDBNull(reader.GetOrdinal("prod_cod_color")) ? "" : Convert.ToString(reader.GetValue(reader.GetOrdinal("prod_cod_color")))
                             };
 
                             venta.total = venta.subTotal + venta.descuento;
@@ -873,8 +876,8 @@ namespace Havaianas_Api.Datos
                                 hora = DateTime.MinValue,
                                 desc_talle = (agTalle == true) ? (reader.IsDBNull(reader.GetOrdinal("desc_talle")) ? "" : reader.GetString(reader.GetOrdinal("desc_talle"))) : "",
                                 desc_color = (agColor == true) ? (reader.IsDBNull(reader.GetOrdinal("desc_color")) ? "" : reader.GetString(reader.GetOrdinal("desc_color"))) : "",
-                                cod_art = (agProd == true) ? (reader.IsDBNull(reader.GetOrdinal("cod_art")) ? 0 : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("cod_art")))) : 0,
-                                cod_color = (agColor == true) ? (reader.IsDBNull(reader.GetOrdinal("cod_color")) ? "" : reader.GetString(reader.GetOrdinal("cod_color"))) : ""
+                                cod_art = (agProd == true) ? (reader.IsDBNull(reader.GetOrdinal("prod_cod_art")) ? 0 : Convert.ToInt32(reader.GetValue(reader.GetOrdinal("prod_cod_art")))) : 0,
+                                cod_color = (agColor == true) ? (reader.IsDBNull(reader.GetOrdinal("prod_cod_color")) ? "" : Convert.ToString(reader.GetValue(reader.GetOrdinal("prod_cod_color")))) : ""
                             };
 
                             venta.total = venta.subTotal + venta.descuento;
