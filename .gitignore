@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Configuración del servidor con secretos (Jwt:Clave, etc.)
+appsettings.Production.json
+appsettings.Secretos.json

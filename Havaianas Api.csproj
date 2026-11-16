@@ -78,7 +78,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Secretos del servidor: se crean a mano en cada máquina, nunca se publican (no pisar los del servidor) -->
+    <Content Update="appsettings.Secretos.json" CopyToPublishDirectory="Never" />
+    <Content Update="appsettings.Production.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="6.0.36" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="7.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="6.0.36" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.1.5" />
     <PackageReference Include="PdfPig" Version="0.1.16" />

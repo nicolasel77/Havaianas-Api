@@ -8,10 +8,37 @@ namespace Havaianas_Api.Datos
 {
     public class sql_db
     {
-        //private readonly string connectionString = "Data Source=NICO;Initial Catalog=dbHavaianas_servidor;Trusted_Connection=True;TrustServerCertificate=True;";
-        // La variable de entorno HAVAIANAS_CONNECTION permite apuntar a otra base (ej. dbHavaianas_servidor2 para pruebas)
-        private readonly string connectionString = Environment.GetEnvironmentVariable("HAVAIANAS_CONNECTION")
-            ?? "Data Source=192.168.1.11;Initial Catalog=dbHavaianas_servidor;User Id=Nikorasu;Password=Oficina02;TrustServerCertificate=True;";
+        // La cadena de conexión NO va en el repo (tiene la clave del SQL). Se lee, en este orden, de:
+        //   1. la variable de entorno HAVAIANAS_CONNECTION (ej. para apuntar a dbHavaianas_servidor2 en pruebas)
+        //   2. ConnectionStrings:Havaianas en appsettings.Secretos.json (junto al .dll, está en .gitignore)
+        //   3. ConnectionStrings:Havaianas en appsettings.{entorno}.json o la variable ConnectionStrings__Havaianas
+        // Program.cs corta el arranque si no está configurada.
+        public static readonly string ConnectionString = LeerConnectionString();
+
+        private readonly string connectionString = ConnectionString;
+
+        public const string MensajeFaltaConexion = "Falta la cadena de conexión al SQL: cargá ConnectionStrings:Havaianas en " +
+            "appsettings.Secretos.json (junto al .dll) o la variable de entorno HAVAIANAS_CONNECTION. Ver LOGIN.md.";
+
+        private static string LeerConnectionString()
+        {
+            var deEntorno = Environment.GetEnvironmentVariable("HAVAIANAS_CONNECTION");
+            if (!string.IsNullOrWhiteSpace(deEntorno)) return deEntorno;
+
+            // Se arma la configuración a mano porque sql_db también se usa desde los comandos de consola
+            // (crear-usuario, resetear-password), que corren sin levantar la Api.
+            var entorno = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? "Production";
+            var config = new ConfigurationBuilder()
+                .SetBasePath(AppContext.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: true)
+                .AddJsonFile($"appsettings.{entorno}.json", optional: true)
+                .AddEnvironmentVariables()
+                .AddJsonFile("appsettings.Secretos.json", optional: true)
+                .Build();
+            return config.GetConnectionString("Havaianas") ?? "";
+        }
 
         // Pequeños stubs para compatibilidad con el controlador FacturasController
         // El controlador original espera un DbContext/DbSet-like API (Include/AnyAsync/Add/SaveChangesAsync)
@@ -162,6 +189,98 @@ namespace Havaianas_Api.Datos
             }
         }
 
+        #endregion
+
+        #region " Usuarios "
+        private const string SelectUsuario = @"SELECT u.[Id], u.[Usuario], u.[Nombre], u.[PasswordHash], u.[IdSucursal], ISNULL(s.[Nombre], ''), u.[Activo], u.[SelloSeguridad]
+                FROM Usuarios u LEFT JOIN sucursales s ON s.[ID] = u.[IdSucursal] ";
+
+        public usuarios? obtener_usuario(string usuario)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using var cmd = new SqlCommand(SelectUsuario + "WHERE u.[Usuario] = @usuario", conexion);
+            cmd.Parameters.AddWithValue("@usuario", usuario);
+            return LeerUsuario(cmd);
+        }
+
+        public usuarios? obtener_usuario_por_id(int id)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using var cmd = new SqlCommand(SelectUsuario + "WHERE u.[Id] = @id", conexion);
+            cmd.Parameters.AddWithValue("@id", id);
+            return LeerUsuario(cmd);
+        }
+
+        private static usuarios? LeerUsuario(SqlCommand cmd)
+        {
+            using SqlDataReader reader = cmd.ExecuteReader();
+            if (!reader.Read()) return null;
+            return new usuarios
+            {
+                id = reader.GetInt32(0),
+                usuario = reader.GetString(1),
+                nombre = reader.GetString(2),
+                password_hash = reader.GetString(3),
+                id_sucursal = reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                sucursal = reader.GetString(5),
+                activo = reader.GetBoolean(6),
+                sello = reader.GetGuid(7).ToString()
+            };
+        }
+
+        public void crear_usuario(string usuario, string nombre, string passwordHash, int? idSucursal)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand(@"INSERT INTO Usuarios ([Usuario], [Nombre], [PasswordHash], [IdSucursal])
+                VALUES (@usuario, @nombre, @passwordHash, @idSucursal)", conexion))
+            {
+                cmd.Parameters.AddWithValue("@usuario", usuario);
+                cmd.Parameters.AddWithValue("@nombre", nombre);
+                cmd.Parameters.AddWithValue("@passwordHash", passwordHash);
+                cmd.Parameters.AddWithValue("@idSucursal", ValorSql(idSucursal));
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // Solo re-hashea (misma contraseña con un algoritmo más fuerte): no cierra sesiones
+        public void actualizar_hash_usuario(int id, string passwordHash)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("UPDATE Usuarios SET [PasswordHash] = @passwordHash WHERE [Id] = @id", conexion))
+            {
+                cmd.Parameters.AddWithValue("@passwordHash", passwordHash);
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        // Contraseña nueva: cambia el sello, así los tokens emitidos antes dejan de valer
+        public void cambiar_password_usuario(int id, string passwordHash)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("UPDATE Usuarios SET [PasswordHash] = @passwordHash, [SelloSeguridad] = NEWID() WHERE [Id] = @id", conexion))
+            {
+                cmd.Parameters.AddWithValue("@passwordHash", passwordHash);
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        public void registrar_login_usuario(int id)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            using (SqlCommand cmd = new SqlCommand("UPDATE Usuarios SET [UltimoLogin] = GETDATE() WHERE [Id] = @id", conexion))
+            {
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.ExecuteNonQuery();
+            }
+        }
         #endregion
 
         #region " Ingresos "
