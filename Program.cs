@@ -28,13 +28,22 @@ if (args.Length > 0)
             Console.WriteLine(Convert.ToBase64String(RandomNumberGenerator.GetBytes(36)).Replace('+', '-').Replace('/', '_'));
             return 0;
         case "crear-usuario":
-            return CrearUsuario(args);
+            return FaltaConexion() ? 1 : CrearUsuario(args);
         case "resetear-password":
-            return ResetearPassword(args);
+            return FaltaConexion() ? 1 : ResetearPassword(args);
     }
 }
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Secretos del servidor (clave del SQL, Jwt:Clave, claves de sucursal, claves push). No está en el repo
+// (.gitignore) ni se publica desde Visual Studio: se crea a mano junto al .dll. Ver LOGIN.md.
+builder.Configuration.AddJsonFile("appsettings.Secretos.json", optional: true, reloadOnChange: false);
+
+if (string.IsNullOrWhiteSpace(sql_db.ConnectionString))
+{
+    throw new InvalidOperationException(sql_db.MensajeFaltaConexion);
+}
 
 // Configuración de Kestrel con puertos fijos
 builder.WebHost.ConfigureKestrel(options =>
@@ -253,4 +262,11 @@ static string LeerOculto()
     }
     Console.WriteLine();
     return texto.ToString();
+}
+
+static bool FaltaConexion()
+{
+    if (!string.IsNullOrWhiteSpace(sql_db.ConnectionString)) return false;
+    Console.WriteLine(sql_db.MensajeFaltaConexion);
+    return true;
 }

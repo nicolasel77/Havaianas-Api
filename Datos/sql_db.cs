@@ -8,10 +8,37 @@ namespace Havaianas_Api.Datos
 {
     public class sql_db
     {
-        //private readonly string connectionString = "Data Source=NICO;Initial Catalog=dbHavaianas_servidor;Trusted_Connection=True;TrustServerCertificate=True;";
-        // La variable de entorno HAVAIANAS_CONNECTION permite apuntar a otra base (ej. dbHavaianas_servidor2 para pruebas)
-        private readonly string connectionString = Environment.GetEnvironmentVariable("HAVAIANAS_CONNECTION")
-            ?? "Data Source=192.168.1.11;Initial Catalog=dbHavaianas_servidor;User Id=Nikorasu;Password=Oficina02;TrustServerCertificate=True;";
+        // La cadena de conexión NO va en el repo (tiene la clave del SQL). Se lee, en este orden, de:
+        //   1. la variable de entorno HAVAIANAS_CONNECTION (ej. para apuntar a dbHavaianas_servidor2 en pruebas)
+        //   2. ConnectionStrings:Havaianas en appsettings.Secretos.json (junto al .dll, está en .gitignore)
+        //   3. ConnectionStrings:Havaianas en appsettings.{entorno}.json o la variable ConnectionStrings__Havaianas
+        // Program.cs corta el arranque si no está configurada.
+        public static readonly string ConnectionString = LeerConnectionString();
+
+        private readonly string connectionString = ConnectionString;
+
+        public const string MensajeFaltaConexion = "Falta la cadena de conexión al SQL: cargá ConnectionStrings:Havaianas en " +
+            "appsettings.Secretos.json (junto al .dll) o la variable de entorno HAVAIANAS_CONNECTION. Ver LOGIN.md.";
+
+        private static string LeerConnectionString()
+        {
+            var deEntorno = Environment.GetEnvironmentVariable("HAVAIANAS_CONNECTION");
+            if (!string.IsNullOrWhiteSpace(deEntorno)) return deEntorno;
+
+            // Se arma la configuración a mano porque sql_db también se usa desde los comandos de consola
+            // (crear-usuario, resetear-password), que corren sin levantar la Api.
+            var entorno = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? "Production";
+            var config = new ConfigurationBuilder()
+                .SetBasePath(AppContext.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: true)
+                .AddJsonFile($"appsettings.{entorno}.json", optional: true)
+                .AddEnvironmentVariables()
+                .AddJsonFile("appsettings.Secretos.json", optional: true)
+                .Build();
+            return config.GetConnectionString("Havaianas") ?? "";
+        }
 
         // Pequeños stubs para compatibilidad con el controlador FacturasController
         // El controlador original espera un DbContext/DbSet-like API (Include/AnyAsync/Add/SaveChangesAsync)
