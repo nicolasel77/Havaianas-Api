@@ -40,6 +40,21 @@ namespace Havaianas_Api.Controllers
             }
             return Ok(productos);
         }       
+        // Productos activos que coinciden con EAN / código equis / ID (o descripción). Usado en Traslados.
+        [HttpGet("Activos")]
+        public ActionResult<IList<productos>> GetActivos(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto))
+            {
+                return BadRequest();
+            }
+            IList<productos> productos = sql.buscar_productos_activos(texto.Trim());
+            if (!productos.Any())
+            {
+                return NotFound();
+            }
+            return Ok(productos);
+        }
         [HttpGet("codart")]
         public ActionResult<long> GetCodArt(string nombre)
         {

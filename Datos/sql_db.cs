@@ -1578,6 +1578,53 @@ namespace Havaianas_Api.Datos
             }
         }
 
+        /// <summary>
+        /// Busca productos activos (Activo = 1 o sin dato) para Traslados.
+        /// Primero por coincidencia exacta de EAN, código equis o ID; si no hay, por descripción.
+        /// Devuelve todos los que coinciden para que el usuario elija cuando hay más de uno.
+        /// </summary>
+        internal IList<productos> buscar_productos_activos(string texto)
+        {
+            using var conexion = new SqlConnection(connectionString);
+            conexion.Open();
+            const string columnas = "SELECT TOP 30 [ID], ISNULL([Codigo_Equis], 0), ISNULL([Cod_Art], 0), ISNULL([Descripcion_Codigo], '')" +
+                ", ISNULL([Categoria], ''), ISNULL([Codigo_Color], 0), ISNULL([Descripcion_Color], ''), ISNULL([Talles], ''), ISNULL([Ean_2025], 0) FROM productos ";
+
+            string[] filtros =
+            {
+                " WHERE ISNULL(Activo, 1) = 1 AND (CONVERT(varchar, EAN_2025) = @texto OR CONVERT(varchar, Codigo_Equis) = @texto OR CONVERT(varchar, ID) = @texto) ORDER BY ID",
+                " WHERE ISNULL(Activo, 1) = 1 AND Descripcion_Codigo LIKE '%' + @texto + '%' ORDER BY Descripcion_Codigo, ID"
+            };
+
+            foreach (string filtro in filtros)
+            {
+                using SqlCommand cmd = new SqlCommand(columnas + filtro, conexion);
+                cmd.Parameters.AddWithValue("@texto", texto);
+                using SqlDataReader reader = cmd.ExecuteReader();
+                List<productos> prods = new List<productos>();
+                while (reader.Read())
+                {
+                    prods.Add(new productos
+                    {
+                        id = reader.GetInt32(0),
+                        codigo_equis = reader.GetInt64(1),
+                        cod_art = reader.GetInt32(2),
+                        descripcion_codigo = reader.GetString(3),
+                        categoria = reader.GetString(4),
+                        codigo_color = reader.GetInt32(5),
+                        descripcion_color = reader.GetString(6),
+                        talles = reader.GetString(7),
+                        ean_2025 = reader.GetInt64(8)
+                    });
+                }
+                if (prods.Count > 0)
+                {
+                    return prods;
+                }
+            }
+            return new List<productos>();
+        }
+
         internal int obtener_codart(string nombre_producto)
         {
             using var conexion = new SqlConnection(connectionString);
